@@ -2,7 +2,6 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs/promises';
 import path from 'path';
-import sharp from 'sharp';
 
 const execAsync = promisify(exec);
 
@@ -45,7 +44,7 @@ export async function renderImage(
   }
 }
 
-async function renderChafaSixel(imagePath: string, maxWidth?: number, preserveTransparency?: boolean): Promise<string> {
+async function renderChafaSixel(imagePath: string, _maxWidth?: number, preserveTransparency?: boolean): Promise<string> {
   try {
     // Chafa automatically scales to terminal width with center alignment
     let cmd = `chafa --format=sixels --align=center`;
@@ -62,7 +61,7 @@ async function renderChafaSixel(imagePath: string, maxWidth?: number, preserveTr
     const { stdout } = await execAsync(cmd, { maxBuffer: 1024 * 1024 * 50 });
     return stdout;
   } catch (error) {
-    console.error(`Chafa rendering error: ${error.message}`);
+    console.error(`Chafa rendering error: ${error instanceof Error ? error.message : String(error)}`);
     return `[Image: ${path.basename(imagePath)} - Chafa rendering failed]`;
   }
 }

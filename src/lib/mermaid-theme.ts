@@ -12,7 +12,6 @@ export interface MermaidThemeConfig {
     mainBkg?: string;
     secondBkg?: string;
     tertiaryBkg?: string;
-    primaryBorderColor?: string;
     secondaryBorderColor?: string;
     tertiaryBorderColor?: string;
     fontFamily?: string;  // Custom font family

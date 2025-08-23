@@ -3,7 +3,7 @@ import { marked } from 'marked';
 import TerminalRenderer from 'marked-terminal';
 import { renderImage } from './lib/image.js';
 import { renderMermaidDiagram, cleanupMermaidFile } from './lib/mermaid.js';
-import { loadConfig, type MMVConfig } from './lib/config.js';
+import { loadConfig } from './lib/config.js';
 import path from 'path';
 import fs from 'fs/promises';
 
@@ -40,7 +40,6 @@ export async function renderMarkdownDirect(filePath: string): Promise<void> {
     let inCodeBlock = false;
     let inMermaidBlock = false;
     let mermaidContent = '';
-    let codeBlockLang = '';
     let processedContent = '';
     
     for (let i = 0; i < lines.length; i++) {
@@ -110,7 +109,7 @@ export async function renderMarkdownDirect(filePath: string): Promise<void> {
             process.stdout.write('```mermaid\n');
             process.stdout.write(mermaidContent);
             process.stdout.write('```\n');
-            process.stdout.write(`[Mermaid error: ${error.message}]\n\n`);
+            process.stdout.write(`[Mermaid error: ${error instanceof Error ? error.message : String(error)}]\n\n`);
           }
           
           mermaidContent = '';
@@ -123,7 +122,6 @@ export async function renderMarkdownDirect(filePath: string): Promise<void> {
         } else {
           // Regular code block
           inCodeBlock = !inCodeBlock;
-          codeBlockLang = langMatch?.[1] || '';
           processedContent += line + '\n';
           continue;
         }

@@ -59,9 +59,9 @@ export async function loadConfig(): Promise<MMVConfig> {
     
     // Deep merge with defaults
     return deepMerge(defaultConfig, userConfig) as MMVConfig;
-  } catch (error) {
+  } catch (error: any) {
     // If config doesn't exist, create default config
-    if (error.code === 'ENOENT') {
+    if (error?.code === 'ENOENT') {
       await initializeConfig();
     }
     return defaultConfig;

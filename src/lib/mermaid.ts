@@ -80,7 +80,8 @@ export async function renderMermaidDiagram(
       await fs.unlink(pngFile).catch(() => {});
       
       // Check if mermaid CLI is installed
-      if (error.message?.includes('command not found') || error.message?.includes('mmdc')) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes('command not found') || errorMessage.includes('mmdc')) {
         throw new Error('Mermaid CLI not installed. Install with: npm install -g @mermaid-js/mermaid-cli');
       }
       throw error;

@@ -45,7 +45,7 @@ export async function renderMarkdown(filePath: string): Promise<void> {
       const imageMatch = line.match(/\[Image: (.*?) \((.*?)\)\]/);
       
       if (imageMatch) {
-        const [_, alt, src] = imageMatch;
+        const [_, _alt, src] = imageMatch;
         
         // Skip external images
         if (src.startsWith('http')) {
@@ -102,7 +102,7 @@ export async function renderMarkdownContent(content: string, baseDir?: string): 
   
   // Pre-process images
   for (const match of images) {
-    const [fullMatch, alt, src] = match;
+    const [_fullMatch, _alt, src] = match;
     
     if (!src.startsWith('http')) {
       const imagePath = path.isAbsolute(src) ? src : path.resolve(markdownDir, src);
@@ -137,7 +137,7 @@ export async function renderMarkdownContent(content: string, baseDir?: string): 
     const imageMatch = line.match(/\[Image: (.*?) \((.*?)\)\]/);
     
     if (imageMatch) {
-      const [_, alt, src] = imageMatch;
+      const [_, _alt, src] = imageMatch;
       const sixelData = processedImages.get(src);
       
       if (sixelData) {

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Box, Text, measureElement } from 'ink';
+import { Box, Text } from 'ink';
 import { renderImage } from '../lib/image.js';
 
 interface SixelImageProps {
@@ -90,6 +90,7 @@ export const SixelImage: React.FC<SixelImageProps> = ({
 
       return () => clearTimeout(timer);
     }
+    return undefined;
   }, [status, sixelData]);
 
   if (status === 'loading') {
