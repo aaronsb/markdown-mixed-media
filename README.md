@@ -4,6 +4,46 @@ A modern terminal-based markdown viewer with sixel graphics support for inline i
 
 ![Demo Image](examples/demo.png)
 
+## Quick Install
+
+Copy and paste this into your terminal:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/aaronsb/markdown-mixed-media/main/install.js | node
+```
+
+Or using wget:
+
+```bash
+wget -qO- https://raw.githubusercontent.com/aaronsb/markdown-mixed-media/main/install.js | node
+```
+
+## Prerequisites
+
+Before installing, you need:
+
+1. **Node.js** (v18 or higher)
+2. **Git** 
+3. **Image rendering tool** (at least one):
+   - `img2sixel` or `chafa` for sixel graphics
+
+### Installing Image Tools
+
+**Ubuntu/Debian:**
+```bash
+sudo apt install libsixel-bin chafa
+```
+
+**macOS:**
+```bash
+brew install libsixel chafa
+```
+
+**Arch Linux:**
+```bash
+sudo pacman -S libsixel chafa
+```
+
 ## ✨ Features
 
 - 📝 **Rich Markdown Rendering** - Full CommonMark support with styled output
@@ -20,7 +60,7 @@ A modern terminal-based markdown viewer with sixel graphics support for inline i
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/markdown-mixed-media.git
+git clone https://github.com/aaronsb/markdown-mixed-media.git
 cd markdown-mixed-media
 
 # Install dependencies
@@ -33,7 +73,7 @@ npm run build:binary
 ./scripts/install.sh
 
 # View any markdown file
-mmv README.md
+mmm README.md
 ```
 
 ### Prerequisites for Full Features

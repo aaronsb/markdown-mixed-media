@@ -4,7 +4,8 @@
   "description": "Mixed Media Markdown - Terminal markdown viewer with sixel graphics support",
   "main": "dist/index.js",
   "bin": {
-    "mmm": "./dist/index.js"
+    "mmm": "./dist/index-direct.js",
+    "install-mmm": "./install.js"
   },
   "scripts": {
     "dev": "tsx src/index.tsx",
