@@ -2,7 +2,7 @@
 
 A modern terminal-based markdown viewer with sixel graphics support for inline images and diagrams.
 
-![Demo](./examples/demo.png)
+![Demo Image](examples/demo.png)
 
 ## ✨ Features
 

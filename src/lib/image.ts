@@ -6,7 +6,7 @@ import sharp from 'sharp';
 
 const execAsync = promisify(exec);
 
-export async function renderImage(imagePath: string): Promise<string> {
+export async function renderImage(imagePath: string, maxWidth?: number): Promise<string> {
   try {
     // Resolve the image path
     const resolvedPath = path.resolve(imagePath);
@@ -17,29 +17,36 @@ export async function renderImage(imagePath: string): Promise<string> {
     // Check for terminal graphics protocol support
     const terminalType = process.env.TERM_PROGRAM;
     
+    let result: string;
     if (terminalType === 'iTerm.app') {
-      return await renderITermImage(resolvedPath);
+      result = await renderITermImage(resolvedPath);
     } else if (terminalType === 'WezTerm' || process.env.KITTY_WINDOW_ID) {
-      return await renderKittyImage(resolvedPath);
+      result = await renderKittyImage(resolvedPath);
     } else {
-      // Default to sixel
-      return await renderSixelImage(resolvedPath);
+      // Default to sixel - pass maxWidth for native sixel scaling
+      result = await renderSixelImage(resolvedPath, maxWidth);
     }
+    
+    return result;
   } catch (error) {
     console.error('Failed to render image:', error);
     return `[Image: ${imagePath}]`;
   }
 }
 
-async function renderSixelImage(imagePath: string): Promise<string> {
+async function renderSixelImage(imagePath: string, maxWidth?: number): Promise<string> {
   try {
-    // Try to use img2sixel
-    const { stdout } = await execAsync(`img2sixel "${imagePath}"`);
+    // Try to use img2sixel with width parameter
+    // img2sixel uses -w for width in pixels
+    const widthParam = maxWidth ? `-w ${maxWidth}` : '';
+    const { stdout } = await execAsync(`img2sixel ${widthParam} "${imagePath}"`);
     return stdout;
   } catch (error) {
     // Fallback to chafa if available
     try {
-      const { stdout } = await execAsync(`chafa --format=sixels "${imagePath}"`);
+      // chafa uses --size for columns x rows
+      const sizeParam = maxWidth ? `--size=${Math.floor(maxWidth/8)}x` : '';
+      const { stdout } = await execAsync(`chafa --format=sixels ${sizeParam} "${imagePath}"`);
       return stdout;
     } catch {
       return `[Image: ${path.basename(imagePath)} - Install img2sixel or chafa for graphics support]`;
@@ -65,25 +72,3 @@ async function renderKittyImage(imagePath: string): Promise<string> {
   }
 }
 
-export async function resizeImage(imagePath: string, maxWidth: number = 800): Promise<string> {
-  try {
-    const metadata = await sharp(imagePath).metadata();
-    
-    if (metadata.width && metadata.width > maxWidth) {
-      const resized = await sharp(imagePath)
-        .resize(maxWidth)
-        .toBuffer();
-      
-      // Save to temp and render
-      const tmpPath = `/tmp/mmv-resized-${Date.now()}.png`;
-      await fs.writeFile(tmpPath, resized);
-      const rendered = await renderImage(tmpPath);
-      await fs.unlink(tmpPath);
-      return rendered;
-    }
-    
-    return renderImage(imagePath);
-  } catch (error) {
-    return renderImage(imagePath);
-  }
-}

@@ -164,6 +164,7 @@ Pass a markdown file as an argument to start viewing!
         <MarkdownViewer 
           content={content} 
           scrollOffset={scrollOffset}
+          currentFile={currentFile || undefined}
         />
       </Box>
       <StatusBar file={currentFile} />
