@@ -1,80 +1,101 @@
-import puppeteer from 'puppeteer';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs/promises';
 import path from 'path';
-import os from 'os';
+import crypto from 'crypto';
 
 const execAsync = promisify(exec);
 
-export async function renderMermaid(diagram: string): Promise<string> {
+export async function renderMermaidDiagram(
+  mermaidCode: string, 
+  options?: { 
+    width?: number; 
+    height?: number;
+    theme?: 'dark' | 'light' | 'default' | 'forest' | 'neutral';
+    backgroundColor?: 'transparent' | string;
+    fontFamily?: string;
+    fontSize?: string;
+  }
+): Promise<string> {
   try {
-    // Create temp files
-    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mmv-mermaid-'));
-    const mermaidFile = path.join(tmpDir, 'diagram.mmd');
-    const outputFile = path.join(tmpDir, 'diagram.png');
-
-    // Write mermaid diagram to file
-    await fs.writeFile(mermaidFile, diagram);
-
-    // Try to use mermaid-cli if available
+    // Create a unique temporary file for the mermaid definition
+    const hash = crypto.createHash('md5').update(mermaidCode).digest('hex').substring(0, 8);
+    const tmpDir = '/tmp';
+    const mermaidFile = path.join(tmpDir, `mermaid-${hash}.mmd`);
+    const pngFile = path.join(tmpDir, `mermaid-${hash}.png`);
+    const configFile = path.join(tmpDir, `mermaid-config-${hash}.json`);
+    
+    // Create mermaid config only if font is explicitly specified (not null)
+    const hasCustomFont = options?.fontFamily !== null && options?.fontFamily !== undefined;
+    const hasCustomSize = options?.fontSize !== null && options?.fontSize !== undefined;
+    
+    if (hasCustomFont || hasCustomSize) {
+      const mermaidConfig: any = {
+        theme: options?.theme || 'dark',
+        themeVariables: {}
+      };
+      
+      if (hasCustomFont) {
+        mermaidConfig.themeVariables.fontFamily = options.fontFamily;
+      }
+      if (hasCustomSize) {
+        mermaidConfig.themeVariables.fontSize = options.fontSize;
+      }
+      
+      await fs.writeFile(configFile, JSON.stringify(mermaidConfig), 'utf-8');
+    }
+    
+    // Write mermaid code to temp file
+    await fs.writeFile(mermaidFile, mermaidCode, 'utf-8');
+    
     try {
-      await execAsync(`mmdc -i "${mermaidFile}" -o "${outputFile}" -t dark -b transparent`);
+      // Build mmdc command with options
+      const width = options?.width || 1200;  // Default width for good resolution
+      const height = options?.height || 800; // Default height
+      const theme = options?.theme || 'dark';
+      const backgroundColor = options?.backgroundColor || 'transparent';
       
-      // Convert to sixel if possible
-      const { stdout } = await execAsync(`img2sixel "${outputFile}"`);
+      // Build command with all options
+      let cmd = `npx mmdc -i "${mermaidFile}" -o "${pngFile}"`;
+      cmd += ` -w ${width} -H ${height}`;
+      cmd += ` -t ${theme}`;
+      cmd += ` -b ${backgroundColor}`;
       
-      // Cleanup
-      await fs.rm(tmpDir, { recursive: true });
+      // Add config file if it was created (for custom fonts)
+      if (hasCustomFont || hasCustomSize) {
+        cmd += ` -c "${configFile}"`;
+      }
       
-      return stdout;
-    } catch (cliError) {
-      // Fallback to puppeteer rendering
-      return await renderWithPuppeteer(diagram, outputFile, tmpDir);
+      await execAsync(cmd);
+      
+      // Clean up temp files
+      await fs.unlink(mermaidFile).catch(() => {});
+      await fs.unlink(configFile).catch(() => {});
+      
+      // Return the PNG file path for sixel rendering
+      return pngFile;
+    } catch (error) {
+      // Clean up temp files on error
+      await fs.unlink(mermaidFile).catch(() => {});
+      await fs.unlink(pngFile).catch(() => {});
+      
+      // Check if mermaid CLI is installed
+      if (error.message?.includes('command not found') || error.message?.includes('mmdc')) {
+        throw new Error('Mermaid CLI not installed. Install with: npm install -g @mermaid-js/mermaid-cli');
+      }
+      throw error;
     }
   } catch (error) {
     console.error('Failed to render mermaid diagram:', error);
-    return `[Mermaid rendering failed: ${error}]`;
+    throw error;
   }
 }
 
-async function renderWithPuppeteer(diagram: string, outputFile: string, tmpDir: string): Promise<string> {
-  const browser = await puppeteer.launch({ headless: true });
-  const page = await browser.newPage();
-  
-  const html = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
-      <script>mermaid.initialize({ startOnLoad: true, theme: 'dark' });</script>
-    </head>
-    <body style="background: transparent;">
-      <div class="mermaid">
-        ${diagram}
-      </div>
-    </body>
-    </html>
-  `;
-  
-  await page.setContent(html);
-  await page.waitForSelector('.mermaid svg');
-  
-  const element = await page.$('.mermaid');
-  if (element) {
-    await element.screenshot({ path: outputFile, omitBackground: true });
-  }
-  
-  await browser.close();
-  
-  // Convert to sixel
+// Clean up function to remove temporary PNG files after rendering
+export async function cleanupMermaidFile(pngPath: string): Promise<void> {
   try {
-    const { stdout } = await execAsync(`img2sixel "${outputFile}"`);
-    await fs.rm(tmpDir, { recursive: true });
-    return stdout;
-  } catch (error) {
-    // If sixel conversion fails, return text representation
-    await fs.rm(tmpDir, { recursive: true });
-    return `[Mermaid diagram: Install img2sixel for graphics support]`;
+    await fs.unlink(pngPath);
+  } catch {
+    // Ignore cleanup errors
   }
 }

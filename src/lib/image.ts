@@ -6,7 +6,12 @@ import sharp from 'sharp';
 
 const execAsync = promisify(exec);
 
-export async function renderImage(imagePath: string, maxWidth?: number): Promise<string> {
+export async function renderImage(
+  imagePath: string, 
+  maxWidth?: number, 
+  preserveTransparency?: boolean,
+  backend?: 'img2sixel' | 'chafa'
+): Promise<string> {
   try {
     // Resolve the image path
     const resolvedPath = path.resolve(imagePath);
@@ -23,8 +28,14 @@ export async function renderImage(imagePath: string, maxWidth?: number): Promise
     } else if (terminalType === 'WezTerm' || process.env.KITTY_WINDOW_ID) {
       result = await renderKittyImage(resolvedPath);
     } else {
-      // Default to sixel - pass maxWidth for native sixel scaling
-      result = await renderSixelImage(resolvedPath, maxWidth);
+      // Use specified backend or default to chafa for transparency
+      const sixelBackend = backend || (preserveTransparency ? 'chafa' : 'img2sixel');
+      
+      if (sixelBackend === 'chafa') {
+        result = await renderChafaSixel(resolvedPath, maxWidth, preserveTransparency);
+      } else {
+        result = await renderSixelImage(resolvedPath, maxWidth, preserveTransparency);
+      }
     }
     
     return result;
@@ -34,23 +45,48 @@ export async function renderImage(imagePath: string, maxWidth?: number): Promise
   }
 }
 
-async function renderSixelImage(imagePath: string, maxWidth?: number): Promise<string> {
+async function renderChafaSixel(imagePath: string, maxWidth?: number, preserveTransparency?: boolean): Promise<string> {
   try {
-    // Try to use img2sixel with width parameter
-    // img2sixel uses -w for width in pixels
-    const widthParam = maxWidth ? `-w ${maxWidth}` : '';
-    const { stdout } = await execAsync(`img2sixel ${widthParam} "${imagePath}"`);
+    // Build chafa command with sixel output
+    let cmd = `chafa --format=sixels`;
+    
+    // Add size parameter if width is specified
+    // chafa uses --size for columns x rows (we convert pixels to columns)
+    if (maxWidth) {
+      const columns = Math.floor(maxWidth / 8); // Approximate 8 pixels per column
+      cmd += ` --size=${columns}x`;
+    }
+    
+    // For transparency, use appropriate background handling
+    if (preserveTransparency) {
+      // Use fg-only mode to preserve transparency
+      cmd += ` --fg-only`;
+      cmd += ` -t 0.95`; // Set transparency threshold
+    }
+    
+    cmd += ` "${imagePath}"`;
+    
+    const { stdout } = await execAsync(cmd);
     return stdout;
   } catch (error) {
-    // Fallback to chafa if available
-    try {
-      // chafa uses --size for columns x rows
-      const sizeParam = maxWidth ? `--size=${Math.floor(maxWidth/8)}x` : '';
-      const { stdout } = await execAsync(`chafa --format=sixels ${sizeParam} "${imagePath}"`);
-      return stdout;
-    } catch {
-      return `[Image: ${path.basename(imagePath)} - Install img2sixel or chafa for graphics support]`;
-    }
+    console.error(`Chafa rendering error: ${error.message}`);
+    return `[Image: ${path.basename(imagePath)} - Chafa rendering failed]`;
+  }
+}
+
+async function renderSixelImage(imagePath: string, maxWidth?: number, preserveTransparency?: boolean): Promise<string> {
+  try {
+    // Try to use img2sixel with width parameter and transparency support
+    // img2sixel uses -w for width in pixels
+    const widthParam = maxWidth ? `-w ${maxWidth}` : '';
+    // Use transparent background for images with alpha channel
+    // The # followed by nothing means transparent
+    const bgParam = preserveTransparency ? '-B "#00000000"' : '';
+    const { stdout } = await execAsync(`img2sixel ${widthParam} ${bgParam} "${imagePath}"`);
+    return stdout;
+  } catch (error) {
+    // If img2sixel fails, return error
+    return `[Image: ${path.basename(imagePath)} - Install img2sixel for graphics support]`;
   }
 }
 
