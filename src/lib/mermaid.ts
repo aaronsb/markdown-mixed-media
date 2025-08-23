@@ -1,6 +1,7 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs/promises';
+import { existsSync } from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import os from 'os';
@@ -63,12 +64,12 @@ export async function renderMermaidDiagram(
       
       // Check multiple locations for mmdc
       let mmdcCommand = 'npx mmdc'; // fallback
-      if (fs.existsSync(localMmdc)) {
+      if (existsSync(localMmdc)) {
         mmdcCommand = localMmdc;
       } else {
         // Try relative to the current module
         const relativeMmdc = path.join(__dirname, '..', '..', 'node_modules', '.bin', 'mmdc');
-        if (fs.existsSync(relativeMmdc)) {
+        if (existsSync(relativeMmdc)) {
           mmdcCommand = relativeMmdc;
         }
       }

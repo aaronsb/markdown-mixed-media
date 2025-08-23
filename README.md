@@ -50,9 +50,7 @@ sudo pacman -S libsixel chafa
 - 🎨 **Syntax Highlighting** - Beautiful code blocks with theme support  
 - 🖼️ **Inline Images** - Display images directly in terminal via Sixel/Kitty/iTerm protocols
 - 📊 **Mermaid Diagrams** - Render flowcharts, sequence diagrams, and more
-- 🔗 **Smart Navigation** - Click links or navigate with keyboard
-- 🎯 **Modern TUI** - Clean interface with mouse support
-- 📦 **Single Binary** - Standalone executable, no dependencies required
+- 📦 **Single Entry** - One executable: mmm yourdocument.md
 
 ## 🚀 Quick Start
 
