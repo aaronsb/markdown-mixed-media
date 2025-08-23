@@ -1,10 +1,10 @@
 {
-  "name": "mmv",
+  "name": "mmm",
   "version": "0.1.0",
-  "description": "Mixed Media Markdown Viewer - Terminal markdown viewer with sixel graphics support",
+  "description": "Mixed Media Markdown - Terminal markdown viewer with sixel graphics support",
   "main": "dist/index.js",
   "bin": {
-    "mmv": "./dist/index.js"
+    "mmm": "./dist/index.js"
   },
   "scripts": {
     "dev": "tsx src/index.tsx",

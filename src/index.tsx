@@ -12,7 +12,7 @@ import { StatusBar } from './components/StatusBar.js';
 
 const cli = meow(`
   Usage
-    $ mmv [file]
+    $ mmm [file]
 
   Options
     --theme, -t  Color theme (dark, light, monokai)
@@ -20,9 +20,9 @@ const cli = meow(`
     --version    Show version
 
   Examples
-    $ mmv README.md
-    $ mmv docs/guide.md --theme monokai
-    $ mmv  # Opens file picker in current directory
+    $ mmm README.md
+    $ mmm docs/guide.md --theme monokai
+    $ mmm  # Opens file picker in current directory
 `, {
   importMeta: import.meta,
   flags: {

@@ -1,4 +1,4 @@
-# mmv - Mixed Media Markdown Viewer
+# mmm - Mixed Media Markdown
 
 A modern terminal-based markdown viewer with sixel graphics support for inline images and diagrams.
 
