@@ -109,9 +109,9 @@ function continueInstallation() {
   console.log('\n📥 Downloading mmm...');
   run(`git clone --depth 1 ${REPO_URL} "${INSTALL_DIR}"`);
   
-  // Install dependencies
+  // Install dependencies (including mermaid-cli)
   console.log('\n📦 Installing dependencies...');
-  run('npm install --production', { cwd: INSTALL_DIR });
+  run('npm install', { cwd: INSTALL_DIR });
   
   // Build the project
   console.log('\n🔨 Building mmm...');

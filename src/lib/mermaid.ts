@@ -3,6 +3,7 @@ import { promisify } from 'util';
 import fs from 'fs/promises';
 import path from 'path';
 import crypto from 'crypto';
+import os from 'os';
 
 const execAsync = promisify(exec);
 
@@ -56,7 +57,23 @@ export async function renderMermaidDiagram(
       const backgroundColor = options?.backgroundColor || 'transparent';
       
       // Build command with all options
-      let cmd = `npx mmdc -i "${mermaidFile}" -o "${pngFile}"`;
+      // Use the mmdc from our installation's node_modules
+      const installDir = path.join(os.homedir(), '.local', 'share', 'mmm');
+      const localMmdc = path.join(installDir, 'node_modules', '.bin', 'mmdc');
+      
+      // Check multiple locations for mmdc
+      let mmdcCommand = 'npx mmdc'; // fallback
+      if (fs.existsSync(localMmdc)) {
+        mmdcCommand = localMmdc;
+      } else {
+        // Try relative to the current module
+        const relativeMmdc = path.join(__dirname, '..', '..', 'node_modules', '.bin', 'mmdc');
+        if (fs.existsSync(relativeMmdc)) {
+          mmdcCommand = relativeMmdc;
+        }
+      }
+      
+      let cmd = `${mmdcCommand} -i "${mermaidFile}" -o "${pngFile}"`;
       cmd += ` -w ${width} -H ${height}`;
       cmd += ` -t ${theme}`;
       cmd += ` -b ${backgroundColor}`;
