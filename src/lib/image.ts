@@ -47,26 +47,19 @@ export async function renderImage(
 
 async function renderChafaSixel(imagePath: string, maxWidth?: number, preserveTransparency?: boolean): Promise<string> {
   try {
-    // Build chafa command with sixel output
-    let cmd = `chafa --format=sixels`;
+    // Chafa automatically scales to terminal width with center alignment
+    let cmd = `chafa --format=sixels --align=center`;
     
-    // Add size parameter if width is specified
-    // chafa uses --size for columns x rows (we convert pixels to columns)
-    if (maxWidth) {
-      const columns = Math.floor(maxWidth / 8); // Approximate 8 pixels per column
-      cmd += ` --size=${columns}x`;
-    }
-    
-    // For transparency, use appropriate background handling
+    // Only add transparency options for mermaid diagrams
     if (preserveTransparency) {
-      // Use fg-only mode to preserve transparency
-      cmd += ` --fg-only`;
-      cmd += ` -t 0.95`; // Set transparency threshold
+      cmd += ` --fg-only -t 0.95`;
     }
     
+    // Let chafa handle sizing automatically
     cmd += ` "${imagePath}"`;
     
-    const { stdout } = await execAsync(cmd);
+    // Use larger buffer for sixel output (50MB should be enough for large images)
+    const { stdout } = await execAsync(cmd, { maxBuffer: 1024 * 1024 * 50 });
     return stdout;
   } catch (error) {
     console.error(`Chafa rendering error: ${error.message}`);
