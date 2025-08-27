@@ -1,32 +1,23 @@
 import { execSync } from 'child_process';
 
 export interface DependencyStatus {
-  img2sixel: boolean;
   chafa: boolean;
   mermaidCli: boolean;
-  hasAnyImageSupport: boolean;
+  hasImageSupport: boolean;
 }
 
 export function checkDependencies(): DependencyStatus {
   const status: DependencyStatus = {
-    img2sixel: false,
     chafa: false,
     mermaidCli: false,
-    hasAnyImageSupport: false
+    hasImageSupport: false
   };
-
-  // Check for img2sixel
-  try {
-    execSync('which img2sixel', { stdio: 'pipe' });
-    status.img2sixel = true;
-  } catch {
-    // Not found
-  }
 
   // Check for chafa
   try {
     execSync('which chafa', { stdio: 'pipe' });
     status.chafa = true;
+    status.hasImageSupport = true;
   } catch {
     // Not found
   }
@@ -39,19 +30,18 @@ export function checkDependencies(): DependencyStatus {
     // Not found
   }
 
-  status.hasAnyImageSupport = status.img2sixel || status.chafa;
 
   return status;
 }
 
 export function printDependencyWarnings(status: DependencyStatus): void {
-  if (!status.hasAnyImageSupport) {
-    console.error('\n⚠️  Warning: No image rendering tools found!');
-    console.error('   Images will not display. Install one of:');
+  if (!status.hasImageSupport) {
+    console.error('\n⚠️  Warning: Chafa not found!');
+    console.error('   Images and diagrams will not display.');
     console.error('');
-    console.error('   Ubuntu/Debian:  sudo apt install libsixel-bin chafa');
-    console.error('   macOS:          brew install libsixel chafa');
-    console.error('   Arch:           sudo pacman -S libsixel chafa');
+    console.error('   Ubuntu/Debian:  sudo apt install chafa');
+    console.error('   macOS:          brew install chafa');
+    console.error('   Arch:           sudo pacman -S chafa');
     console.error('');
   }
 

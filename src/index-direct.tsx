@@ -58,11 +58,10 @@ async function main() {
   
   if (cli.flags.check) {
     console.log('Dependency Status:');
-    console.log(`  img2sixel: ${deps.img2sixel ? '✅' : '❌'}`);
-    console.log(`  chafa:     ${deps.chafa ? '✅' : '❌'}`);
-    console.log(`  mermaid:   ${deps.mermaidCli ? '✅' : '❌'}`);
+    console.log(`  chafa:    ${deps.chafa ? '✅' : '❌'}`);
+    console.log(`  mermaid:  ${deps.mermaidCli ? '✅' : '❌'}`);
     printDependencyWarnings(deps);
-    process.exit(deps.hasAnyImageSupport ? 0 : 1);
+    process.exit(deps.hasImageSupport ? 0 : 1);
   }
   
   const inputFile = cli.input[0];
@@ -93,7 +92,7 @@ async function main() {
     } else {
       // Terminal rendering mode
       // Warn about missing dependencies but continue
-      if (!deps.hasAnyImageSupport) {
+      if (!deps.hasImageSupport) {
         printDependencyWarnings(deps);
       }
       

@@ -92,21 +92,23 @@ async function processMermaidBlocks(content: string, _markdownDir: string, profi
             theme: profile.mermaid.theme,
             backgroundColor: profile.mermaid.backgroundColor,
             fontFamily: profile.mermaid.fontFamily || profile.fonts.mermaid,
-            fontSize: profile.mermaid.fontSize
+            fontSize: profile.mermaid.fontSize,
+            dpi: profile.mermaid.dpi,  // Pass DPI for high-quality rendering
+            outputFormat: 'svg' as const  // Use SVG for vector graphics in PDF
           };
           
-          const pngPath = await renderMermaidDiagram(mermaidContent, mermaidOptions);
+          const svgPath = await renderMermaidDiagram(mermaidContent, mermaidOptions);
           
-          // Read the PNG and convert to base64
-          const pngData = await fs.readFile(pngPath);
-          const base64 = pngData.toString('base64');
-          const dataUri = `data:image/png;base64,${base64}`;
+          // Read the SVG and convert to base64
+          const svgData = await fs.readFile(svgPath, 'utf-8');
+          const base64 = Buffer.from(svgData).toString('base64');
+          const dataUri = `data:image/svg+xml;base64,${base64}`;
           
           // Add as HTML img tag directly to avoid markdown processing issues
           processedContent += `<img src="${dataUri}" alt="Mermaid Diagram" style="max-width: 100%; height: auto;">\n\n`;
           
           // Clean up temp file
-          await cleanupMermaidFile(pngPath);
+          await cleanupMermaidFile(svgPath);
         } catch (error) {
           // If mermaid rendering fails, include as code block
           processedContent += '```mermaid\n' + mermaidContent + '```\n';

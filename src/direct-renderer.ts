@@ -64,35 +64,27 @@ export async function renderMarkdownDirect(filePath: string): Promise<void> {
           try {
             process.stdout.write('\n');
             
-            // Convert mermaid to PNG using profile settings
+            // Convert mermaid to SVG using profile settings (chafa supports SVG)
             const mermaidOptions = {
               width: profile.mermaid.width,
               height: profile.mermaid.height,
               theme: profile.mermaid.theme,
               backgroundColor: profile.mermaid.backgroundColor,
               fontFamily: profile.mermaid.fontFamily,
-              fontSize: profile.mermaid.fontSize
+              fontSize: profile.mermaid.fontSize,
+              dpi: profile.mermaid.dpi,  // Pass DPI setting
+              outputFormat: 'svg' as const  // Always use SVG for terminal (chafa only)
             };
-            const pngPath = await renderMermaidDiagram(mermaidContent, mermaidOptions);
+            const imagePath = await renderMermaidDiagram(mermaidContent, mermaidOptions);
             
-            // Calculate scaling based on profile
-            let maxWidth: number | undefined = undefined;
-            if (profile.mermaid.scale === 'fit') {
-              const termColumns = process.stdout.columns || 80;
-              const pixelsPerColumn = profile.terminal?.pixelsPerColumn || 8;
-              const imageScaling = profile.terminal?.imageScaling || 0.75;
-              maxWidth = Math.floor(termColumns * pixelsPerColumn * imageScaling);
-            } else if (typeof profile.mermaid.scale === 'number') {
-              maxWidth = Math.floor(profile.mermaid.width * profile.mermaid.scale);
-            }
-            // else 'none' means undefined maxWidth (1:1 rendering)
-            
-            // Render PNG as sixel using configured backend
+            // Render image using same width calculation as regular images
             const sixelOutput = await renderImage(
-              pngPath, 
-              maxWidth, 
+              imagePath, 
+              undefined,  // Let renderImage handle width calculation
               profile.terminal?.transparency.enabled || true,
-              profile.terminal?.backend || 'chafa'
+              profile.terminal?.backend || 'chafa',
+              profile.images.alignment,
+              profile.images.widthPercent  // Use the same width percentage as images
             );
             
             if (sixelOutput && sixelOutput.startsWith('\x1b')) {
@@ -103,8 +95,8 @@ export async function renderMarkdownDirect(filePath: string): Promise<void> {
             
             process.stdout.write('\n');
             
-            // Clean up temp PNG file
-            await cleanupMermaidFile(pngPath);
+            // Clean up temp file
+            await cleanupMermaidFile(imagePath);
           } catch (error) {
             // If mermaid rendering fails, show the code block as text
             process.stdout.write('```mermaid\n');
@@ -158,15 +150,14 @@ export async function renderMarkdownDirect(filePath: string): Promise<void> {
             // Add some spacing
             process.stdout.write('\n');
             
-            // Render the image using profile settings
+            // Render the image using profile settings (same as Mermaid)
             const sixelOutput = await renderImage(
               imagePath, 
-              1,  // Triggers scaling logic
+              undefined,  // Let renderImage handle width calculation
               false,  // Regular images don't need transparency preservation
               profile.terminal?.backend || 'chafa',
               profile.images.alignment,
-              profile.images.widthPercent,
-              profile.terminal?.pixelsPerColumn || 8
+              profile.images.widthPercent  // Use configured width percentage
             );
             
             if (sixelOutput && sixelOutput.startsWith('\x1b')) {
