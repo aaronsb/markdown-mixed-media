@@ -5,7 +5,7 @@ import os from 'os';
 // Profile-specific configuration
 export interface RenderProfile {
   name: string;
-  output: 'terminal' | 'pdf';
+  output: 'terminal' | 'pdf' | 'odt';
   theme: 'dark' | 'light';
   fonts: {
     body: string;
@@ -221,12 +221,65 @@ const printProfile: RenderProfile = {
   }
 };
 
+// ODT profile - for editing in LibreOffice/Word
+const odtProfile: RenderProfile = {
+  name: 'odt',
+  output: 'odt',
+  theme: 'light',
+  fonts: {
+    body: 'Liberation Sans, Arial, sans-serif',
+    heading: 'Liberation Sans, Arial, sans-serif',
+    code: 'Liberation Mono, Courier New, monospace',
+    mermaid: 'Liberation Sans, Arial, sans-serif'
+  },
+  fontSizes: {
+    body: '12pt',
+    h1: '20pt',
+    h2: '18pt',
+    h3: '16pt',
+    h4: '14pt',
+    h5: '12pt',
+    h6: '12pt',
+    code: '10pt'
+  },
+  colors: {
+    text: '#000000',
+    heading: '#000080',
+    link: '#0000ff',
+    code: {
+      background: '#f5f5f5',
+      text: '#333333',
+      keyword: '#0000ff',
+      string: '#008000',
+      comment: '#808080',
+      function: '#800080',
+      number: '#098658'
+    }
+  },
+  images: {
+    widthPercent: 0.9,
+    alignment: 'center',
+    maxWidth: '100%',
+    dpi: 150
+  },
+  mermaid: {
+    width: 1200,
+    height: 800,
+    theme: 'default',
+    backgroundColor: '#ffffff',
+    scale: 1,
+    fontFamily: 'Liberation Sans, Arial, sans-serif',
+    fontSize: '14px'
+  }
+};
+
 const defaultConfig: MMVConfig = {
   defaultProfile: 'terminal',
   profiles: {
     terminal: terminalProfile,
     pdf: pdfProfile,
-    print: printProfile
+    print: printProfile,
+    odt: odtProfile
   }
 };
 
