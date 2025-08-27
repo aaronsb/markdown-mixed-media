@@ -3,7 +3,7 @@ import { marked } from 'marked';
 import TerminalRenderer from 'marked-terminal';
 import { renderImage } from './lib/image.js';
 import { renderMermaidDiagram, cleanupMermaidFile } from './lib/mermaid.js';
-import { loadConfig } from './lib/config.js';
+import { loadProfile } from './lib/config.js';
 import path from 'path';
 import fs from 'fs/promises';
 
@@ -28,8 +28,8 @@ marked.setOptions({ renderer });
 
 export async function renderMarkdownDirect(filePath: string): Promise<void> {
   try {
-    // Load configuration
-    const config = await loadConfig();
+    // Load profile
+    const profile = await loadProfile('terminal');
     
     // Read the markdown file
     const content = await fs.readFile(filePath, 'utf-8');
@@ -64,25 +64,26 @@ export async function renderMarkdownDirect(filePath: string): Promise<void> {
           try {
             process.stdout.write('\n');
             
-            // Convert mermaid to PNG using config settings
+            // Convert mermaid to PNG using profile settings
             const mermaidOptions = {
-              width: config.rendering.mermaid.width,
-              height: config.rendering.mermaid.height,
-              theme: config.rendering.mermaid.theme,
-              backgroundColor: config.rendering.mermaid.backgroundColor,
-              fontFamily: config.rendering.mermaid.fontFamily,
-              fontSize: config.rendering.mermaid.fontSize
+              width: profile.mermaid.width,
+              height: profile.mermaid.height,
+              theme: profile.mermaid.theme,
+              backgroundColor: profile.mermaid.backgroundColor,
+              fontFamily: profile.mermaid.fontFamily,
+              fontSize: profile.mermaid.fontSize
             };
             const pngPath = await renderMermaidDiagram(mermaidContent, mermaidOptions);
             
-            // Calculate scaling based on config
+            // Calculate scaling based on profile
             let maxWidth: number | undefined = undefined;
-            if (config.rendering.mermaid.scale === 'fit') {
+            if (profile.mermaid.scale === 'fit') {
               const termColumns = process.stdout.columns || 80;
-              const pixelsPerColumn = 8;
-              maxWidth = Math.floor(termColumns * pixelsPerColumn * config.rendering.imageScaling);
-            } else if (typeof config.rendering.mermaid.scale === 'number') {
-              maxWidth = Math.floor(config.rendering.mermaid.width * config.rendering.mermaid.scale);
+              const pixelsPerColumn = profile.terminal?.pixelsPerColumn || 8;
+              const imageScaling = profile.terminal?.imageScaling || 0.75;
+              maxWidth = Math.floor(termColumns * pixelsPerColumn * imageScaling);
+            } else if (typeof profile.mermaid.scale === 'number') {
+              maxWidth = Math.floor(profile.mermaid.width * profile.mermaid.scale);
             }
             // else 'none' means undefined maxWidth (1:1 rendering)
             
@@ -90,8 +91,8 @@ export async function renderMarkdownDirect(filePath: string): Promise<void> {
             const sixelOutput = await renderImage(
               pngPath, 
               maxWidth, 
-              config.rendering.transparency.enabled,
-              config.rendering.backend
+              profile.terminal?.transparency.enabled || true,
+              profile.terminal?.backend || 'chafa'
             );
             
             if (sixelOutput && sixelOutput.startsWith('\x1b')) {
@@ -157,15 +158,15 @@ export async function renderMarkdownDirect(filePath: string): Promise<void> {
             // Add some spacing
             process.stdout.write('\n');
             
-            // Render the image using config settings
-            const termColumns = process.stdout.columns || 80;
-            const pixelsPerColumn = 8; // Conservative estimate
-            const maxWidthPixels = Math.floor(termColumns * pixelsPerColumn * config.rendering.imageScaling);
+            // Render the image using profile settings
             const sixelOutput = await renderImage(
               imagePath, 
-              maxWidthPixels, 
+              1,  // Triggers scaling logic
               false,  // Regular images don't need transparency preservation
-              config.rendering.backend
+              profile.terminal?.backend || 'chafa',
+              profile.images.alignment,
+              profile.images.widthPercent,
+              profile.terminal?.pixelsPerColumn || 8
             );
             
             if (sixelOutput && sixelOutput.startsWith('\x1b')) {

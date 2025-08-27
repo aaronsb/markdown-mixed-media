@@ -9,7 +9,10 @@ export async function renderImage(
   imagePath: string, 
   maxWidth?: number, 
   preserveTransparency?: boolean,
-  backend?: 'img2sixel' | 'chafa'
+  backend?: 'img2sixel' | 'chafa',
+  alignment?: 'left' | 'center' | 'right',
+  widthPercent?: number,
+  pixelsPerColumn?: number
 ): Promise<string> {
   try {
     // Resolve the image path
@@ -31,9 +34,9 @@ export async function renderImage(
       const sixelBackend = backend || (preserveTransparency ? 'chafa' : 'img2sixel');
       
       if (sixelBackend === 'chafa') {
-        result = await renderChafaSixel(resolvedPath, maxWidth, preserveTransparency);
+        result = await renderChafaSixel(resolvedPath, maxWidth, preserveTransparency, alignment, widthPercent);
       } else {
-        result = await renderSixelImage(resolvedPath, maxWidth, preserveTransparency);
+        result = await renderSixelImage(resolvedPath, maxWidth, preserveTransparency, widthPercent, pixelsPerColumn);
       }
     }
     
@@ -44,17 +47,32 @@ export async function renderImage(
   }
 }
 
-async function renderChafaSixel(imagePath: string, _maxWidth?: number, preserveTransparency?: boolean): Promise<string> {
+async function renderChafaSixel(
+  imagePath: string, 
+  maxWidth?: number, 
+  preserveTransparency?: boolean,
+  alignment?: 'left' | 'center' | 'right',
+  widthPercent?: number
+): Promise<string> {
   try {
-    // Chafa automatically scales to terminal width with center alignment
-    let cmd = `chafa --format=sixels --align=center`;
+    // Use configured alignment (default to center)
+    const align = alignment || 'center';
+    let cmd = `chafa --format=sixels --align=${align}`;
+    
+    // Scale to configured percentage of terminal width if maxWidth is provided
+    if (maxWidth && widthPercent) {
+      // Get terminal columns
+      const termColumns = process.stdout.columns || 80;
+      // Calculate target width based on configured percentage
+      const targetColumns = Math.floor(termColumns * widthPercent);
+      cmd += ` --size=${targetColumns}`;
+    }
     
     // Only add transparency options for mermaid diagrams
     if (preserveTransparency) {
       cmd += ` --fg-only -t 0.95`;
     }
     
-    // Let chafa handle sizing automatically
     cmd += ` "${imagePath}"`;
     
     // Use larger buffer for sixel output (50MB should be enough for large images)
@@ -66,11 +84,25 @@ async function renderChafaSixel(imagePath: string, _maxWidth?: number, preserveT
   }
 }
 
-async function renderSixelImage(imagePath: string, maxWidth?: number, preserveTransparency?: boolean): Promise<string> {
+async function renderSixelImage(
+  imagePath: string, 
+  maxWidth?: number, 
+  preserveTransparency?: boolean,
+  widthPercent?: number,
+  pixelsPerColumn?: number
+): Promise<string> {
   try {
     // Try to use img2sixel with width parameter and transparency support
-    // img2sixel uses -w for width in pixels
-    const widthParam = maxWidth ? `-w ${maxWidth}` : '';
+    let widthParam = '';
+    if (maxWidth && widthPercent) {
+      // Get terminal columns and calculate target width in pixels
+      const termColumns = process.stdout.columns || 80;
+      const targetColumns = Math.floor(termColumns * (widthPercent || 0.75));
+      // Use configured pixels per column (default to 8)
+      const ppc = pixelsPerColumn || 8;
+      const targetPixels = targetColumns * ppc;
+      widthParam = `-w ${targetPixels}`;
+    }
     // Use transparent background for images with alpha channel
     // The # followed by nothing means transparent
     const bgParam = preserveTransparency ? '-B "#00000000"' : '';
