@@ -2,6 +2,7 @@
 import meow from 'meow';
 import { renderMarkdownDirect } from './direct-renderer.js';
 import { renderMarkdownToPdf } from './lib/pdf-renderer.js';
+import { renderMarkdownToOdt } from './lib/odt-renderer.js';
 import { checkDependencies, printDependencyWarnings } from './lib/check-deps.js';
 import path from 'path';
 
@@ -9,18 +10,22 @@ const cli = meow(`
   Usage
     $ mmm [file]
     $ mmm --pdf [file] [output]
+    $ mmm --odt [file] [output]
 
   Options
     --help, -h   Show help
     --version    Show version
     --check      Check dependencies and exit
     --pdf        Generate PDF instead of terminal output
-    --profile    Specify render profile (default: terminal for display, pdf for --pdf)
+    --odt        Generate ODT instead of terminal output
+    --profile    Specify render profile (default: terminal for display, pdf for --pdf, odt for --odt)
 
   Examples
     $ mmm README.md
     $ mmm --pdf README.md
     $ mmm --pdf README.md output.pdf
+    $ mmm --odt README.md
+    $ mmm --odt README.md output.odt
     $ mmm --profile print --pdf README.md
     $ mmm docs/guide.md
     $ mmm --check
@@ -32,6 +37,10 @@ const cli = meow(`
       default: false
     },
     pdf: {
+      type: 'boolean',
+      default: false
+    },
+    odt: {
       type: 'boolean',
       default: false
     },
@@ -73,6 +82,14 @@ async function main() {
       console.log(`Generating PDF from ${inputFile}...`);
       const generatedPath = await renderMarkdownToPdf(inputFile, outputFile, profile);
       console.log(`✅ PDF generated successfully: ${path.resolve(generatedPath)}`);
+    } else if (cli.flags.odt) {
+      // ODT generation mode
+      const outputFile = cli.input[1] || inputFile.replace(/\.md$/i, '.odt');
+      const profile = cli.flags.profile || 'odt';
+      
+      console.log(`Generating ODT from ${inputFile}...`);
+      const generatedPath = await renderMarkdownToOdt(inputFile, outputFile, profile);
+      console.log(`✅ ODT generated successfully: ${path.resolve(generatedPath)}`);
     } else {
       // Terminal rendering mode
       // Warn about missing dependencies but continue
@@ -85,6 +102,8 @@ async function main() {
   } catch (error) {
     if (cli.flags.pdf) {
       console.error('Failed to generate PDF:', error);
+    } else if (cli.flags.odt) {
+      console.error('Failed to generate ODT:', error);
     } else {
       console.error('Failed to render markdown:', error);
     }
