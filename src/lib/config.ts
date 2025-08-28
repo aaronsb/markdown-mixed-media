@@ -68,6 +68,13 @@ export interface RenderProfile {
     };
     pixelsPerColumn: number;
     imageScaling: number;  // Legacy - kept for backward compatibility
+    fallbackColumns?: number;  // Fallback width when terminal size can't be detected
+  };
+  // Table-specific settings
+  tables?: {
+    wordWrap?: boolean;
+    wrapOnWordBoundary?: boolean;
+    widthPercent?: number;  // Percentage of terminal width to use for tables
   };
   // PDF-specific settings
   pdf?: {
@@ -122,7 +129,13 @@ const terminalProfile: RenderProfile = {
       threshold: 0.95
     },
     pixelsPerColumn: 8,
-    imageScaling: 0.75
+    imageScaling: 0.75,
+    fallbackColumns: 80
+  },
+  tables: {
+    wordWrap: true,
+    wrapOnWordBoundary: true,
+    widthPercent: 0.95  // Use 95% of terminal width for tables
   }
 };
 

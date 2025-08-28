@@ -13,9 +13,10 @@ interface MarkdownViewerProps {
 }
 
 // Configure marked with terminal renderer
+const terminalWidth = process.stdout.columns || 80;
 const renderer = new TerminalRenderer({
   showSectionPrefix: false,
-  width: 80,
+  width: terminalWidth,
   reflowText: true,
   tab: 2,
   emoji: true,
@@ -24,7 +25,11 @@ const renderer = new TerminalRenderer({
       head: ['cyan', 'bold'],
       border: ['gray'],
       compact: false
-    }
+    },
+    wordWrap: true,
+    wrapOnWordBoundary: true
+    // Note: colWidths will be calculated by cli-table3 based on the terminal width
+    // when not specified, it divides available width among columns
   }
 });
 
