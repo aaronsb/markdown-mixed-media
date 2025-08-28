@@ -34,21 +34,23 @@ export async function renderMermaidDiagram(
     const hasCustomFont = options?.fontFamily !== null && options?.fontFamily !== undefined;
     const hasCustomSize = options?.fontSize !== null && options?.fontSize !== undefined;
     
-    if (hasCustomFont || hasCustomSize) {
-      const mermaidConfig: any = {
-        theme: options?.theme || 'dark',
-        themeVariables: {}
-      };
-      
-      if (hasCustomFont) {
-        mermaidConfig.themeVariables.fontFamily = options.fontFamily;
+    // Always create config to ensure htmlLabels is false for compatibility
+    const mermaidConfig: any = {
+      theme: options?.theme || 'dark',
+      themeVariables: {},
+      flowchart: {
+        htmlLabels: false  // Use native SVG text instead of foreignObject for compatibility
       }
-      if (hasCustomSize) {
-        mermaidConfig.themeVariables.fontSize = options.fontSize;
-      }
-      
-      await fs.writeFile(configFile, JSON.stringify(mermaidConfig), 'utf-8');
+    };
+    
+    if (hasCustomFont) {
+      mermaidConfig.themeVariables.fontFamily = options.fontFamily;
     }
+    if (hasCustomSize) {
+      mermaidConfig.themeVariables.fontSize = options.fontSize;
+    }
+    
+    await fs.writeFile(configFile, JSON.stringify(mermaidConfig), 'utf-8');
     
     // Write mermaid code to temp file
     await fs.writeFile(mermaidFile, mermaidCode, 'utf-8');
@@ -90,10 +92,8 @@ export async function renderMermaidDiagram(
         cmd += ` -s ${scale}`;
       }
       
-      // Add config file if it was created (for custom fonts)
-      if (hasCustomFont || hasCustomSize) {
-        cmd += ` -c "${configFile}"`;
-      }
+      // Always use config file to ensure htmlLabels is false
+      cmd += ` -c "${configFile}"`;
       
       await execAsync(cmd);
       

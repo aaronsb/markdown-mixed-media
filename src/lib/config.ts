@@ -111,6 +111,8 @@ const terminalProfile: RenderProfile = {
     theme: 'dark',
     backgroundColor: 'transparent',
     scale: 'none',
+    fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',  // Use same fonts as PDF
+    fontSize: '14px',
     dpi: 96  // Screen resolution for terminal display
   },
   terminal: {
@@ -271,7 +273,7 @@ const odtProfile: RenderProfile = {
     theme: 'default',
     backgroundColor: '#ffffff',
     scale: 1,
-    fontFamily: 'Liberation Sans, Arial, sans-serif',
+    fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',  // Use same fonts as PDF (proven to work)
     fontSize: '14px',
     dpi: 300  // High resolution for document editing
   }
