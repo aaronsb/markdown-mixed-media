@@ -78,26 +78,28 @@ async function processMermaidBlocks(content: string, _markdownDir: string, profi
             theme: profile.mermaid.theme,
             backgroundColor: profile.mermaid.backgroundColor === 'transparent' ? '#ffffff' : profile.mermaid.backgroundColor,
             fontFamily: profile.mermaid.fontFamily || profile.fonts.mermaid,
-            fontSize: profile.mermaid.fontSize
+            fontSize: profile.mermaid.fontSize,
+            dpi: profile.mermaid.dpi,  // Pass DPI for high-quality rendering
+            outputFormat: 'svg' as const  // Use SVG for vector graphics in ODT
           };
           
-          const pngPath = await renderMermaidDiagram(mermaidContent, mermaidOptions);
+          const svgPath = await renderMermaidDiagram(mermaidContent, mermaidOptions);
           
           // For ODT, we'll keep the image file and reference it
           // Create a temp directory for images if it doesn't exist
           const tempDir = path.join(os.tmpdir(), 'mmm-odt-images');
           await fs.mkdir(tempDir, { recursive: true });
           
-          // Copy the image to temp directory with a unique name
-          const imageName = `mermaid-${Date.now()}-${Math.random().toString(36).substr(2, 9)}.png`;
+          // Copy the SVG to temp directory with a unique name
+          const imageName = `mermaid-${Date.now()}-${Math.random().toString(36).substr(2, 9)}.svg`;
           const tempImagePath = path.join(tempDir, imageName);
-          await fs.copyFile(pngPath, tempImagePath);
+          await fs.copyFile(svgPath, tempImagePath);
           
           // Add as markdown image with width attribute for Pandoc
           processedContent += `![Mermaid Diagram](${tempImagePath}){width=90%}\n\n`;
           
           // Clean up original temp file
-          await cleanupMermaidFile(pngPath);
+          await cleanupMermaidFile(svgPath);
         } catch (error) {
           // If mermaid rendering fails, include as code block
           processedContent += '```mermaid\n' + mermaidContent + '```\n';

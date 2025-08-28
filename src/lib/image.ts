@@ -7,12 +7,11 @@ const execAsync = promisify(exec);
 
 export async function renderImage(
   imagePath: string, 
-  maxWidth?: number, 
+  _maxWidth?: number,  // Deprecated - kept for compatibility
   preserveTransparency?: boolean,
-  backend?: 'img2sixel' | 'chafa',
+  _backend?: 'chafa',  // Only chafa supported now
   alignment?: 'left' | 'center' | 'right',
-  widthPercent?: number,
-  pixelsPerColumn?: number
+  widthPercent?: number
 ): Promise<string> {
   try {
     // Resolve the image path
@@ -30,14 +29,8 @@ export async function renderImage(
     } else if (terminalType === 'WezTerm' || process.env.KITTY_WINDOW_ID) {
       result = await renderKittyImage(resolvedPath);
     } else {
-      // Use specified backend or default to chafa for transparency
-      const sixelBackend = backend || (preserveTransparency ? 'chafa' : 'img2sixel');
-      
-      if (sixelBackend === 'chafa') {
-        result = await renderChafaSixel(resolvedPath, maxWidth, preserveTransparency, alignment, widthPercent);
-      } else {
-        result = await renderSixelImage(resolvedPath, maxWidth, preserveTransparency, widthPercent, pixelsPerColumn);
-      }
+      // Always use chafa (supports both PNG and SVG)
+      result = await renderChafaSixel(resolvedPath, undefined, preserveTransparency, alignment, widthPercent);
     }
     
     return result;
@@ -49,7 +42,7 @@ export async function renderImage(
 
 async function renderChafaSixel(
   imagePath: string, 
-  maxWidth?: number, 
+  _maxWidth?: number,  // Deprecated - not used anymore
   preserveTransparency?: boolean,
   alignment?: 'left' | 'center' | 'right',
   widthPercent?: number
@@ -57,16 +50,15 @@ async function renderChafaSixel(
   try {
     // Use configured alignment (default to center)
     const align = alignment || 'center';
-    let cmd = `chafa --format=sixels --align=${align}`;
     
-    // Scale to configured percentage of terminal width if maxWidth is provided
-    if (maxWidth && widthPercent) {
-      // Get terminal columns
-      const termColumns = process.stdout.columns || 80;
-      // Calculate target width based on configured percentage
-      const targetColumns = Math.floor(termColumns * widthPercent);
-      cmd += ` --size=${targetColumns}`;
-    }
+    // Calculate width based on terminal columns and percentage
+    // Default to 75% if not specified (matching your preference)
+    const percentage = widthPercent || 0.75;
+    const termColumns = process.stdout.columns || 80;
+    const targetColumns = Math.floor(termColumns * percentage);
+    
+    // Build chafa command
+    let cmd = `chafa --format=sixels --align=${align} --size=${targetColumns}`;
     
     // Only add transparency options for mermaid diagrams
     if (preserveTransparency) {
@@ -84,36 +76,6 @@ async function renderChafaSixel(
   }
 }
 
-async function renderSixelImage(
-  imagePath: string, 
-  maxWidth?: number, 
-  preserveTransparency?: boolean,
-  widthPercent?: number,
-  pixelsPerColumn?: number
-): Promise<string> {
-  try {
-    // Try to use img2sixel with width parameter and transparency support
-    let widthParam = '';
-    if (maxWidth && widthPercent) {
-      // Get terminal columns and calculate target width in pixels
-      const termColumns = process.stdout.columns || 80;
-      const targetColumns = Math.floor(termColumns * (widthPercent || 0.75));
-      // Use configured pixels per column (default to 8)
-      const ppc = pixelsPerColumn || 8;
-      const targetPixels = targetColumns * ppc;
-      widthParam = `-w ${targetPixels}`;
-    }
-    // Use transparent background for images with alpha channel
-    // The # followed by nothing means transparent
-    const bgParam = preserveTransparency ? '-B "#00000000"' : '';
-    const { stdout } = await execAsync(`img2sixel ${widthParam} ${bgParam} "${imagePath}"`);
-    return stdout;
-  } catch (error) {
-    // If img2sixel fails, return error
-    return `[Image: ${path.basename(imagePath)} - Install img2sixel for graphics support]`;
-  }
-}
-
 async function renderITermImage(imagePath: string): Promise<string> {
   // iTerm2 inline images protocol
   const base64 = await fs.readFile(imagePath, { encoding: 'base64' });
@@ -127,8 +89,8 @@ async function renderKittyImage(imagePath: string): Promise<string> {
     const { stdout } = await execAsync(`kitty +kitten icat "${imagePath}"`);
     return stdout;
   } catch {
-    // Fallback to sixel
-    return renderSixelImage(imagePath);
+    // Fallback to chafa
+    return renderChafaSixel(imagePath);
   }
 }
 

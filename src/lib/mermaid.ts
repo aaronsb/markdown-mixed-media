@@ -17,14 +17,17 @@ export async function renderMermaidDiagram(
     backgroundColor?: 'transparent' | string;
     fontFamily?: string;
     fontSize?: string;
+    dpi?: number;  // DPI for diagram resolution (higher = better quality)
+    outputFormat?: 'png' | 'svg';  // Output format (default: png)
   }
 ): Promise<string> {
   try {
     // Create a unique temporary file for the mermaid definition
     const hash = crypto.createHash('md5').update(mermaidCode).digest('hex').substring(0, 8);
     const tmpDir = '/tmp';
+    const outputFormat = options?.outputFormat || 'png';
     const mermaidFile = path.join(tmpDir, `mermaid-${hash}.mmd`);
-    const pngFile = path.join(tmpDir, `mermaid-${hash}.png`);
+    const outputFile = path.join(tmpDir, `mermaid-${hash}.${outputFormat}`);
     const configFile = path.join(tmpDir, `mermaid-config-${hash}.json`);
     
     // Create mermaid config only if font is explicitly specified (not null)
@@ -74,10 +77,18 @@ export async function renderMermaidDiagram(
         }
       }
       
-      let cmd = `${mmdcCommand} -i "${mermaidFile}" -o "${pngFile}"`;
+      let cmd = `${mmdcCommand} -i "${mermaidFile}" -o "${outputFile}"`;
       cmd += ` -w ${width} -H ${height}`;
       cmd += ` -t ${theme}`;
       cmd += ` -b ${backgroundColor}`;
+      
+      // Add scale based on DPI (default 96 DPI = scale 1)
+      // Higher DPI means higher scale for better quality
+      // For SVG, this affects the viewport size and internal dimensions
+      if (options?.dpi) {
+        const scale = options.dpi / 96;  // 96 DPI is the default/baseline
+        cmd += ` -s ${scale}`;
+      }
       
       // Add config file if it was created (for custom fonts)
       if (hasCustomFont || hasCustomSize) {
@@ -90,12 +101,12 @@ export async function renderMermaidDiagram(
       await fs.unlink(mermaidFile).catch(() => {});
       await fs.unlink(configFile).catch(() => {});
       
-      // Return the PNG file path for sixel rendering
-      return pngFile;
+      // Return the output file path
+      return outputFile;
     } catch (error) {
       // Clean up temp files on error
       await fs.unlink(mermaidFile).catch(() => {});
-      await fs.unlink(pngFile).catch(() => {});
+      await fs.unlink(outputFile).catch(() => {});
       
       // Check if mermaid CLI is installed
       const errorMessage = error instanceof Error ? error.message : String(error);

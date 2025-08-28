@@ -57,10 +57,11 @@ export interface RenderProfile {
     scale: 'none' | 'fit' | number;
     fontFamily?: string;
     fontSize?: string;
+    dpi?: number;  // DPI for Mermaid diagram generation (higher = better quality for print)
   };
   // Terminal-specific settings
   terminal?: {
-    backend: 'img2sixel' | 'chafa';
+    backend: 'chafa';  // Only chafa supported (supports SVG)
     transparency: {
       enabled: boolean;
       threshold: number;
@@ -109,7 +110,8 @@ const terminalProfile: RenderProfile = {
     height: 1200,
     theme: 'dark',
     backgroundColor: 'transparent',
-    scale: 'none'
+    scale: 'none',
+    dpi: 96  // Screen resolution for terminal display
   },
   terminal: {
     backend: 'chafa',
@@ -170,16 +172,17 @@ const pdfProfile: RenderProfile = {
     dpi: 150
   },
   mermaid: {
-    width: 1200,
-    height: 800,
+    width: 2400,  // Scaled up for 300 DPI (was 1200 at ~96 DPI)
+    height: 1600,  // Scaled up for 300 DPI (was 800 at ~96 DPI)
     theme: 'default',  // Use default (light) theme for PDF
     backgroundColor: 'transparent',
     scale: 1,
     fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
-    fontSize: '14px'
+    fontSize: '14px',
+    dpi: 300  // High resolution for print quality
   },
   pdf: {
-    pageSize: 'A4',
+    pageSize: 'Letter',
     orientation: 'portrait',
     headerFooter: {
       enabled: true,
@@ -263,13 +266,14 @@ const odtProfile: RenderProfile = {
     dpi: 150
   },
   mermaid: {
-    width: 1200,
-    height: 800,
+    width: 2400,  // Scaled up for 300 DPI
+    height: 1600,  // Scaled up for 300 DPI
     theme: 'default',
     backgroundColor: '#ffffff',
     scale: 1,
     fontFamily: 'Liberation Sans, Arial, sans-serif',
-    fontSize: '14px'
+    fontSize: '14px',
+    dpi: 300  // High resolution for document editing
   }
 };
 
