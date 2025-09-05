@@ -4,6 +4,7 @@ import TerminalRenderer from 'marked-terminal';
 import { renderImage } from './lib/image.js';
 import { renderMermaidDiagram, cleanupMermaidFile } from './lib/mermaid.js';
 import { loadProfile } from './lib/config.js';
+import { highlightCode, detectLanguage } from './lib/terminal-syntax-highlighter.js';
 import path from 'path';
 import fs from 'fs/promises';
 import Table from 'cli-table3';
@@ -40,6 +41,19 @@ async function createRenderer(profile: any) {
 
   // Override the table method to calculate column widths
   const renderer = Object.create(baseRenderer);
+  
+  // Override the code method to use our syntax highlighter
+  renderer.code = function(code: string, lang?: string) {
+    // Apply our custom syntax highlighting
+    const highlighted = lang ? highlightCode(code, lang) : highlightCode(code, detectLanguage(code));
+    
+    // Add indentation (2 spaces per line)
+    const lines = highlighted.split('\n');
+    const indented = lines.map(line => '  ' + line).join('\n');
+    
+    // Add spacing before and after
+    return '\n' + indented + '\n';
+  };
   
   // Define the special markers used by marked-terminal
   const TABLE_CELL_SPLIT = '^*||*^';
