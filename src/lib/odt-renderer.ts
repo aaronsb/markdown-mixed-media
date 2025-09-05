@@ -148,9 +148,23 @@ function addImageWidthAttributes(markdown: string, profile: RenderProfile): stri
 
 
 async function convertMarkdownToOdt(markdown: string, outputPath: string, baseDir: string, profile: RenderProfile): Promise<void> {
+  // Create markdown with metadata header for font configuration
+  const fontSize = profile.fontSizes?.body || '11pt';
+  // Extract numeric value from font size (e.g., '11pt' -> '11')
+  const fontSizeNumeric = parseInt(fontSize.replace(/[^0-9]/g, ''));
+  
+  // Add YAML metadata header with font settings
+  const markdownWithMetadata = `---
+fontsize: ${fontSizeNumeric}pt
+mainfont: ${profile.fonts.body}
+monofont: ${profile.fonts.code}
+---
+
+${markdown}`;
+  
   // Write markdown to a temporary file
   const tempMdPath = path.join(os.tmpdir(), `mmm-temp-${Date.now()}.md`);
-  await fs.writeFile(tempMdPath, markdown, 'utf-8');
+  await fs.writeFile(tempMdPath, markdownWithMetadata, 'utf-8');
   
   try {
     // Use pandoc to convert markdown to ODT
