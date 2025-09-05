@@ -4,32 +4,136 @@ import TerminalRenderer from 'marked-terminal';
 import { renderImage } from './lib/image.js';
 import { renderMermaidDiagram, cleanupMermaidFile } from './lib/mermaid.js';
 import { loadProfile } from './lib/config.js';
+import { highlightCode, detectLanguage } from './lib/terminal-syntax-highlighter.js';
 import path from 'path';
 import fs from 'fs/promises';
+import Table from 'cli-table3';
 
-// Configure marked with terminal renderer
-const renderer = new TerminalRenderer({
-  showSectionPrefix: false,
-  width: process.stdout.columns || 80,
-  reflowText: true,
-  tab: 2,
-  emoji: true,
-  tableOptions: {
-    style: {
-      head: ['cyan', 'bold'],
-      border: ['gray'],
-      compact: false
+// Create renderer with configuration from profile
+async function createRenderer(profile: any) {
+  // Use terminal width detection with fallback from profile
+  const terminalWidth = process.stdout.columns || profile.terminal?.fallbackColumns || 80;
+  
+  // Get table configuration from profile
+  const tableConfig = profile.tables || {
+    wordWrap: true,
+    wrapOnWordBoundary: true,
+    widthPercent: 0.95
+  };
+
+  // Create a custom renderer that extends TerminalRenderer
+  const baseRenderer = new TerminalRenderer({
+    showSectionPrefix: false,
+    width: terminalWidth,
+    reflowText: true,
+    tab: 2,
+    emoji: true,
+    tableOptions: {
+      style: {
+        head: ['cyan', 'bold'],
+        border: ['gray'],
+        compact: false
+      },
+      wordWrap: tableConfig.wordWrap,
+      wrapOnWordBoundary: tableConfig.wrapOnWordBoundary
     }
-  }
-});
+  });
 
-// @ts-ignore - type mismatch with marked versions
-marked.setOptions({ renderer });
+  // Override the table method to calculate column widths
+  const renderer = Object.create(baseRenderer);
+  
+  // Override the code method to use our syntax highlighter
+  renderer.code = function(code: string, lang?: string) {
+    // Apply our custom syntax highlighting
+    const highlighted = lang ? highlightCode(code, lang) : highlightCode(code, detectLanguage(code));
+    
+    // Add indentation (2 spaces per line)
+    const lines = highlighted.split('\n');
+    const indented = lines.map(line => '  ' + line).join('\n');
+    
+    // Add spacing before and after
+    return '\n' + indented + '\n';
+  };
+  
+  // Define the special markers used by marked-terminal
+  const TABLE_CELL_SPLIT = '^*||*^';
+  const TABLE_ROW_WRAP = '*|*|*|*';
+  const TABLE_ROW_WRAP_REGEXP = new RegExp(TABLE_ROW_WRAP.replace(/[|*]/g, '\\$&'), 'g');
+  
+  renderer.table = function(header: string, body: string) {
+    // Helper function to parse table rows
+    const parseTableRow = (text: string) => {
+      if (!text) return [];
+      const lines = text.split('\n');
+      const data: string[][] = [];
+      
+      lines.forEach(line => {
+        if (!line) return;
+        const parsed = line
+          .replace(TABLE_ROW_WRAP_REGEXP, '')
+          .split(TABLE_CELL_SPLIT);
+        data.push(parsed.slice(0, -1)); // Remove last empty element
+      });
+      
+      return data;
+    };
+    
+    // Parse header and body
+    const headerRows = parseTableRow(header);
+    const bodyRows = parseTableRow(body);
+    
+    if (headerRows.length === 0) return '';
+    
+    const numColumns = headerRows[0].length;
+    
+    // Calculate column widths based on terminal width and profile percentage
+    const widthPercent = tableConfig.widthPercent || 0.95;
+    // Account for borders and padding (3 chars per column separator)
+    const availableWidth = Math.floor(terminalWidth * widthPercent) - (numColumns + 1) * 3;
+    const colWidth = Math.floor(availableWidth / numColumns);
+    
+    // Set minimum column width to prevent too narrow columns
+    const minWidth = 10;
+    const calculatedWidth = Math.max(minWidth, colWidth);
+    
+    // Create colWidths array
+    const colWidths = new Array(numColumns).fill(calculatedWidth);
+    
+    // Apply the calculated widths to tableOptions
+    const tableOptionsWithWidths = {
+      ...this.tableSettings,
+      colWidths: colWidths
+    };
+    
+    // Create the table with calculated widths
+    const table = new Table({
+      head: headerRows[0],
+      ...tableOptionsWithWidths
+    });
+    
+    // Add body rows
+    bodyRows.forEach(row => {
+      if (row.length === numColumns) {
+        table.push(row);
+      }
+    });
+    
+    return '\n' + table.toString() + '\n';
+  };
+
+  return renderer;
+}
 
 export async function renderMarkdownDirect(filePath: string): Promise<void> {
   try {
     // Load profile
     const profile = await loadProfile('terminal');
+    
+    // Create renderer with profile configuration
+    const renderer = await createRenderer(profile);
+    
+    // @ts-ignore - type mismatch with marked versions
+    marked.setOptions({ renderer });
     
     // Read the markdown file
     const content = await fs.readFile(filePath, 'utf-8');
