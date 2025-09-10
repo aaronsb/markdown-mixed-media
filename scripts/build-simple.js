@@ -18,9 +18,12 @@ async function buildSimple() {
     // First, ensure TypeScript is compiled
     await execAsync('npm run build', { cwd: projectRoot });
     
-    // Create a simple executable wrapper
+    // Get the absolute path to the dist directory
+    const distPath = path.join(projectRoot, 'dist', 'index-direct.js');
+    
+    // Create a wrapper that uses the absolute path
     const wrapperContent = `#!/usr/bin/env node
-import './dist/index-direct.js';
+import '${distPath}';
 `;
     
     // Write the wrapper file
@@ -32,7 +35,7 @@ import './dist/index-direct.js';
     
     console.log('✅ Build complete! Executable created at: ./mmm');
     console.log('📝 You can now run: ./mmm <markdown-file>');
-    console.log('📝 To install system-wide: sudo cp mmm /usr/local/bin/');
+    console.log('📝 To install to ~/.local/bin: ./scripts/install.sh');
     
   } catch (error) {
     console.error('❌ Build failed:', error);
