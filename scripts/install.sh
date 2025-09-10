@@ -72,12 +72,14 @@ else
     echo "  Fedora: dnf install chafa"
 fi
 
-# Test if mermaid-cli is available
-if command -v mmdc &> /dev/null; then
-    echo -e "${GREEN}✅ mermaid-cli found - diagram rendering will work${NC}"
+# Test if mermaid-cli is available (check local node_modules first)
+if [ -f "./node_modules/.bin/mmdc" ]; then
+    echo -e "${GREEN}✅ mermaid-cli found (local) - diagram rendering will work${NC}"
+elif command -v mmdc &> /dev/null; then
+    echo -e "${GREEN}✅ mermaid-cli found (global) - diagram rendering will work${NC}"
 else
-    echo -e "${YELLOW}ℹ️  mermaid-cli not found - install for diagram support:${NC}"
-    echo "  npm install -g @mermaid-js/mermaid-cli"
+    echo -e "${GREEN}✅ mermaid-cli included as dependency - diagram rendering will work${NC}"
+    echo -e "  ${BLUE}(Using bundled @mermaid-js/mermaid-cli from node_modules)${NC}"
 fi
 
 echo ""
