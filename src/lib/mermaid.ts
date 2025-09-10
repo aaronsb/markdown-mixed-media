@@ -1,10 +1,8 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs/promises';
-import { existsSync } from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import os from 'os';
 
 const execAsync = promisify(exec);
 
@@ -62,22 +60,9 @@ export async function renderMermaidDiagram(
       const theme = options?.theme || 'dark';
       const backgroundColor = options?.backgroundColor || 'transparent';
       
-      // Build command with all options
-      // Use the mmdc from our installation's node_modules
-      const installDir = path.join(os.homedir(), '.local', 'share', 'mmm');
-      const localMmdc = path.join(installDir, 'node_modules', '.bin', 'mmdc');
-      
-      // Check multiple locations for mmdc
-      let mmdcCommand = 'npx mmdc'; // fallback
-      if (existsSync(localMmdc)) {
-        mmdcCommand = localMmdc;
-      } else {
-        // Try relative to the current module
-        const relativeMmdc = path.join(__dirname, '..', '..', 'node_modules', '.bin', 'mmdc');
-        if (existsSync(relativeMmdc)) {
-          mmdcCommand = relativeMmdc;
-        }
-      }
+      // Always use npx to run the bundled mermaid-cli dependency
+      // This ensures we use the exact version specified in package.json
+      const mmdcCommand = 'npx mmdc';
       
       let cmd = `${mmdcCommand} -i "${mermaidFile}" -o "${outputFile}"`;
       cmd += ` -w ${width} -H ${height}`;
