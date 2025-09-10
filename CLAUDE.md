@@ -5,11 +5,12 @@ This project provides enhanced markdown rendering for terminal, PDF, and ODT out
 
 ## Rendering Methods
 
-### 1. Direct Render (`npm run dev:direct` or `npm run start`)
+### 1. Direct Render (`npm run dev` or `npm run start`)
 **Recommended for terminal viewing with images**
 - Renders markdown directly to terminal with full image support
 - Uses Sixel/iTerm2/Kitty protocols for inline images
 - Supports Mermaid diagrams rendered as images
+- Supports embedded SVG rendering
 - Enhanced syntax highlighting with semantic coloring
 - Best terminal experience for viewing documents with mixed media
 
@@ -19,13 +20,6 @@ This project provides enhanced markdown rendering for terminal, PDF, and ODT out
 - Images shown as placeholder text `[Image: description]`
 - Lightweight and compatible with all terminals
 - Good for quick text-only viewing or terminals without graphics support
-
-### 3. Interactive Render (`npm run dev`)
-**Currently has issues with Sixel backscrolling**
-- Uses Ink framework for interactive UI
-- Known issue: Breaks when rendering Sixel images due to backscrolling conflicts
-- Needs further development to handle terminal graphics protocols properly
-- Not recommended for documents with images until fixed
 
 ## Syntax Highlighting Features
 
@@ -97,9 +91,12 @@ npm run start document.md --odt output.odt
 
 - The project uses TypeScript and compiles to JavaScript
 - Main entry points:
-  - `src/index-direct.tsx` - Direct renderer (recommended)
+  - `src/index-direct.tsx` - Direct renderer (default)
   - `src/index-simple.tsx` - Simple text renderer
-  - `src/index.tsx` - Interactive renderer (has issues)
-- Syntax highlighter: `src/lib/terminal-syntax-highlighter.ts`
-- Image rendering: `src/lib/image.ts`
-- Mermaid support: `src/lib/mermaid.ts`
+- Key libraries:
+  - Syntax highlighter: `src/lib/terminal-syntax-highlighter.ts`
+  - Image rendering: `src/lib/image.ts`
+  - Mermaid support: `src/lib/mermaid.ts`
+  - SVG support: `src/lib/svg.ts`
+  - PDF generation: `src/lib/pdf-renderer.ts`
+  - ODT generation: `src/lib/odt-renderer.ts`
