@@ -4,13 +4,35 @@
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-echo "🚀 Installing mmv (Mixed Media Markdown Viewer)"
+echo "🚀 Installing MMM (Markdown Mixed Media Viewer)"
+echo ""
+
+# Clean previous builds
+echo -e "${BLUE}🧹 Cleaning previous builds...${NC}"
+rm -rf dist/ build/ mmm mmv 2>/dev/null
+
+# Build the project
+echo -e "${BLUE}🔨 Building project...${NC}"
+npm run build
+if [ $? -ne 0 ]; then
+    echo -e "${RED}❌ Build failed${NC}"
+    exit 1
+fi
+
+# Create the executable
+echo -e "${BLUE}📦 Creating executable...${NC}"
+npm run build:simple
+if [ $? -ne 0 ]; then
+    echo -e "${RED}❌ Failed to create executable${NC}"
+    exit 1
+fi
 
 # Check if binary exists
-if [ ! -f "./mmv" ]; then
-    echo -e "${RED}❌ Binary not found. Run 'npm run build:binary' first.${NC}"
+if [ ! -f "./mmm" ]; then
+    echo -e "${RED}❌ Binary not found after build${NC}"
     exit 1
 fi
 
@@ -18,10 +40,10 @@ fi
 mkdir -p ~/.local/bin
 
 # Copy binary
-cp ./mmv ~/.local/bin/mmv
-chmod +x ~/.local/bin/mmv
+cp ./mmm ~/.local/bin/mmm
+chmod +x ~/.local/bin/mmm
 
-echo -e "${GREEN}✅ Installed mmv to ~/.local/bin/mmv${NC}"
+echo -e "${GREEN}✅ Installed mmm to ~/.local/bin/mmm${NC}"
 
 # Check if ~/.local/bin is in PATH
 if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
@@ -35,18 +57,19 @@ if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
 else
     echo -e "${GREEN}✅ ~/.local/bin is already in PATH${NC}"
     echo ""
-    echo "You can now use mmv from anywhere:"
-    echo -e "${GREEN}mmv README.md${NC}"
+    echo "You can now use mmm from anywhere:"
+    echo -e "${GREEN}mmm README.md${NC}"
 fi
 
-# Test if img2sixel is available
-if command -v img2sixel &> /dev/null; then
-    echo -e "${GREEN}✅ img2sixel found - sixel graphics will work${NC}"
+# Test if chafa is available (primary image renderer)
+if command -v chafa &> /dev/null; then
+    echo -e "${GREEN}✅ chafa found - image rendering will work${NC}"
 else
-    echo -e "${YELLOW}ℹ️  img2sixel not found - install libsixel for image support:${NC}"
-    echo "  Ubuntu/Debian: sudo apt-get install libsixel-bin"
-    echo "  macOS: brew install libsixel"
-    echo "  Arch: yay -S libsixel"
+    echo -e "${YELLOW}ℹ️  chafa not found - install for image support:${NC}"
+    echo "  Ubuntu/Debian: sudo apt-get install chafa"
+    echo "  macOS: brew install chafa"
+    echo "  Arch: pacman -S chafa"
+    echo "  Fedora: dnf install chafa"
 fi
 
 # Test if mermaid-cli is available
@@ -56,3 +79,14 @@ else
     echo -e "${YELLOW}ℹ️  mermaid-cli not found - install for diagram support:${NC}"
     echo "  npm install -g @mermaid-js/mermaid-cli"
 fi
+
+echo ""
+echo -e "${GREEN}🎉 Installation complete!${NC}"
+echo ""
+echo "Available commands:"
+echo -e "  ${BLUE}mmm <file.md>${NC}         - Render markdown with images"
+echo -e "  ${BLUE}mmm --help${NC}            - Show help and options"
+echo -e "  ${BLUE}npm run settings${NC}      - Configure MMM settings"
+echo ""
+echo "Try it now:"
+echo -e "  ${GREEN}mmm README.md${NC}"
