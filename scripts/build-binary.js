@@ -19,15 +19,15 @@ async function buildBinary() {
     // Bundle with esbuild
     console.log('📦 Bundling with esbuild...');
     await esbuild.build({
-      entryPoints: [path.join(projectRoot, 'dist/index.js')],
+      entryPoints: [path.join(projectRoot, 'dist/index-direct.js')],
       bundle: true,
-      outfile: path.join(projectRoot, 'build/bundle.cjs'),
+      outfile: path.join(projectRoot, 'build/bundle.js'),
       platform: 'node',
-      format: 'cjs',
+      format: 'esm',
       target: 'node20',
-      external: ['sharp', 'puppeteer'],
+      external: ['sharp', 'puppeteer', 'react-devtools-core'],
       minify: true,
-      sourcemap: false,
+      sourcemap: false
     });
 
     // Check Node.js version for SEA support
@@ -57,9 +57,11 @@ async function buildWithSEA() {
   
   // Create SEA config
   await fs.writeFile(configFile, JSON.stringify({
-    main: 'bundle.cjs',
+    main: 'bundle.js',
     output: 'sea-prep.blob',
-    disableExperimentalSEAWarning: true
+    disableExperimentalSEAWarning: true,
+    useSnapshot: false,
+    useCodeCache: true
   }, null, 2));
   
   // Generate blob
@@ -77,7 +79,7 @@ async function buildWithSEA() {
 }
 
 async function buildWithNexe() {
-  await execAsync(`npx nexe build/bundle.cjs -o mmv --target node20-linux-x64`);
+  await execAsync(`npx nexe build/bundle.js -o mmv --target node20-linux-x64`);
 }
 
 buildBinary();

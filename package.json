@@ -11,10 +11,13 @@
     "dev": "tsx src/index.tsx",
     "dev:simple": "tsx src/index-simple.tsx",
     "dev:direct": "tsx src/index-direct.tsx",
+    "dev:settings": "tsx src/settings-cli.ts",
+    "settings": "tsx src/settings-cli.ts",
     "watch": "tsx watch src/index.tsx",
     "start": "node dist/index.js",
     "build": "tsc && chmod +x dist/index.js && chmod +x dist/index-simple.js",
     "build:binary": "npm run build && npm run package",
+    "build:simple": "node scripts/build-simple.js",
     "package": "node scripts/build-binary.js",
     "install:local": "npm run build:binary && ./scripts/install.sh",
     "test": "jest"
