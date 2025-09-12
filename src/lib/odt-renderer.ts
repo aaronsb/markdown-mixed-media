@@ -1,4 +1,5 @@
 import { renderMermaidDiagram, cleanupMermaidFile } from './mermaid.js';
+import { extractSvgFromHtml } from './svg.js';
 import { loadProfile, RenderProfile } from './config.js';
 import path from 'path';
 import fs from 'fs/promises';
@@ -28,8 +29,8 @@ export async function renderMarkdownToOdt(
     const content = await fs.readFile(filePath, 'utf-8');
     const markdownDir = path.dirname(path.resolve(filePath));
     
-    // Process markdown content with mermaid diagrams and add image width attributes
-    const processedContent = await processMermaidBlocks(content, markdownDir, profile);
+    // Process markdown content with mermaid diagrams, SVGs, and add image width attributes
+    const processedContent = await processMermaidAndSvgBlocks(content, markdownDir, profile);
     
     // Add width attributes to all images in markdown
     const markdownWithImageAttrs = addImageWidthAttributes(processedContent, profile);
@@ -52,6 +53,57 @@ async function checkPandocInstalled(): Promise<void> {
   } catch {
     throw new Error('Pandoc is not installed. Please install pandoc to generate ODT files: https://pandoc.org/installing.html');
   }
+}
+
+async function processMermaidAndSvgBlocks(content: string, _markdownDir: string, profile: RenderProfile): Promise<string> {
+  // First, extract and process all embedded SVG blocks to prevent issues
+  let processedContent = await processEmbeddedSvgs(content);
+  
+  // Then process Mermaid blocks
+  return processMermaidBlocks(processedContent, _markdownDir, profile);
+}
+
+// Process embedded SVGs before markdown parsing
+async function processEmbeddedSvgs(content: string): Promise<string> {
+  let result = content;
+  
+  // Regular expression to match SVG blocks (with or without wrapping divs)
+  const svgBlockRegex = /(<div[^>]*>\s*)?<svg[\s\S]*?<\/svg>(\s*<\/div>)?/gi;
+  
+  let match;
+  const replacements: Array<{ original: string; replacement: string }> = [];
+  
+  while ((match = svgBlockRegex.exec(content)) !== null) {
+    const svgBlock = match[0];
+    
+    // Extract the SVG element
+    const extractedSvg = extractSvgFromHtml(svgBlock);
+    
+    if (extractedSvg) {
+      // For ODT, save SVG to temp file and reference it
+      const tempDir = path.join(os.tmpdir(), 'mmm-odt-images');
+      await fs.mkdir(tempDir, { recursive: true });
+      
+      const svgName = `svg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}.svg`;
+      const tempSvgPath = path.join(tempDir, svgName);
+      await fs.writeFile(tempSvgPath, extractedSvg, 'utf-8');
+      
+      // Add as markdown image with width attribute for Pandoc
+      const imgMarkdown = `![SVG Diagram](${tempSvgPath}){width=90%}`;
+      
+      replacements.push({
+        original: svgBlock,
+        replacement: imgMarkdown
+      });
+    }
+  }
+  
+  // Apply all replacements
+  for (const { original, replacement } of replacements) {
+    result = result.replace(original, replacement);
+  }
+  
+  return result;
 }
 
 async function processMermaidBlocks(content: string, _markdownDir: string, profile: RenderProfile): Promise<string> {

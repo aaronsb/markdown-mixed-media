@@ -3,6 +3,7 @@ import { markedHighlight } from 'marked-highlight';
 import hljs from 'highlight.js';
 import puppeteer from 'puppeteer';
 import { renderMermaidDiagram, cleanupMermaidFile } from './mermaid.js';
+import { extractSvgFromHtml } from './svg.js';
 import { loadProfile, RenderProfile } from './config.js';
 import path from 'path';
 import fs from 'fs/promises';
@@ -44,8 +45,8 @@ export async function renderMarkdownToPdf(
     const content = await fs.readFile(filePath, 'utf-8');
     const markdownDir = path.dirname(path.resolve(filePath));
     
-    // Process markdown content with mermaid diagrams
-    const processedContent = await processMermaidBlocks(content, markdownDir, profile);
+    // Process markdown content with mermaid diagrams and embedded SVGs
+    const processedContent = await processMermaidAndSvgBlocks(content, markdownDir, profile);
     
     // Convert markdown to HTML
     const htmlContent = await marked.parse(processedContent);
@@ -66,6 +67,54 @@ export async function renderMarkdownToPdf(
   } catch (error) {
     throw new Error(`Failed to generate PDF: ${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+async function processMermaidAndSvgBlocks(content: string, _markdownDir: string, profile: RenderProfile): Promise<string> {
+  // First, extract and process all embedded SVG blocks to prevent page break issues
+  let processedContent = await processEmbeddedSvgs(content);
+  
+  // Then process Mermaid blocks
+  return processMermaidBlocks(processedContent, _markdownDir, profile);
+}
+
+// Process embedded SVGs before markdown parsing to prevent page break issues
+async function processEmbeddedSvgs(content: string): Promise<string> {
+  let result = content;
+  
+  // Regular expression to match SVG blocks (with or without wrapping divs)
+  // This captures the entire SVG block including any wrapping elements
+  const svgBlockRegex = /(<div[^>]*>\s*)?<svg[\s\S]*?<\/svg>(\s*<\/div>)?/gi;
+  
+  let match;
+  const replacements: Array<{ original: string; replacement: string }> = [];
+  
+  while ((match = svgBlockRegex.exec(content)) !== null) {
+    const svgBlock = match[0];
+    
+    // Extract the SVG element
+    const extractedSvg = extractSvgFromHtml(svgBlock);
+    
+    if (extractedSvg) {
+      // Convert SVG to base64 data URI
+      const base64 = Buffer.from(extractedSvg).toString('base64');
+      const dataUri = `data:image/svg+xml;base64,${base64}`;
+      
+      // Create img tag replacement with page-break-inside: avoid to prevent splitting
+      const imgTag = `<img src="${dataUri}" alt="SVG Diagram" style="max-width: 100%; height: auto; page-break-inside: avoid;">`;
+      
+      replacements.push({
+        original: svgBlock,
+        replacement: imgTag
+      });
+    }
+  }
+  
+  // Apply all replacements
+  for (const { original, replacement } of replacements) {
+    result = result.replace(original, replacement);
+  }
+  
+  return result;
 }
 
 async function processMermaidBlocks(content: string, _markdownDir: string, profile: RenderProfile): Promise<string> {

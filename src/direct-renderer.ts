@@ -3,6 +3,7 @@ import { marked } from 'marked';
 import TerminalRenderer from 'marked-terminal';
 import { renderImage } from './lib/image.js';
 import { renderMermaidDiagram, cleanupMermaidFile } from './lib/mermaid.js';
+import { renderEmbeddedSvg, extractSvgFromHtml } from './lib/svg.js';
 import { loadProfile } from './lib/config.js';
 import { highlightCode, detectLanguage } from './lib/terminal-syntax-highlighter.js';
 import path from 'path';
@@ -228,6 +229,72 @@ export async function renderMarkdownDirect(filePath: string): Promise<void> {
       if (inMermaidBlock) {
         mermaidContent += line + '\n';
         continue;
+      }
+      
+      // Check if we're starting an SVG block (either <svg> or <div> containing SVG)
+      if (!inCodeBlock && (line.includes('<svg') || line.includes('<div'))) {
+        // Look ahead to see if this contains SVG
+        let svgContent = '';
+        let foundSvg = false;
+        let foundEndDiv = false;
+        
+        // Collect lines until we find the end of the SVG block
+        for (let j = i; j < lines.length && j < i + 100; j++) {
+          svgContent += lines[j] + '\n';
+          
+          if (lines[j].includes('<svg')) {
+            foundSvg = true;
+          }
+          
+          if (foundSvg && lines[j].includes('</svg>')) {
+            // Check if we need to find a closing div
+            if (svgContent.includes('<div')) {
+              // Look for closing div
+              for (let k = j; k < lines.length && k < j + 5; k++) {
+                if (k > j) {
+                  svgContent += lines[k] + '\n';
+                }
+                if (lines[k].includes('</div>')) {
+                  foundEndDiv = true;
+                  i = k; // Skip ahead to after the closing div
+                  break;
+                }
+              }
+            } else {
+              i = j; // Skip ahead to after the SVG
+              foundEndDiv = true; // No div wrapper needed
+            }
+            break;
+          }
+        }
+        
+        if (foundSvg && foundEndDiv) {
+          // Extract the SVG element
+          const extractedSvg = extractSvgFromHtml(svgContent);
+          
+          if (extractedSvg) {
+            // First, render everything we've accumulated so far
+            if (processedContent) {
+              const rendered = marked(processedContent) as string;
+              process.stdout.write(rendered);
+              processedContent = '';
+            }
+            
+            // Render the SVG
+            process.stdout.write('\n');
+            
+            const svgOutput = await renderEmbeddedSvg(extractedSvg, {
+              width: profile.images.widthPercent,
+              alignment: profile.images.alignment
+            });
+            
+            // renderEmbeddedSvg now returns either the rendered image or a warning message
+            process.stdout.write(svgOutput);
+            process.stdout.write('\n');
+            
+            continue;
+          }
+        }
       }
       
       // Check for image syntax ![alt](src)
