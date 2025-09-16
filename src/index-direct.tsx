@@ -5,17 +5,24 @@ import { renderMarkdownToPdf } from './lib/pdf-renderer.js';
 import { renderMarkdownToOdt } from './lib/odt-renderer.js';
 import { checkDependencies, printDependencyWarnings } from './lib/check-deps.js';
 import path from 'path';
+import { spawn } from 'child_process';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const cli = meow(`
   Usage
     $ mmm [file]
     $ mmm --pdf [file] [output]
     $ mmm --odt [file] [output]
+    $ mmm --settings
 
   Options
     --help, -h   Show help
     --version    Show version
     --check      Check dependencies and exit
+    --settings   Configure MMM settings interactively
     --pdf        Generate PDF instead of terminal output
     --odt        Generate ODT instead of terminal output
     --profile    Specify render profile (default: terminal for display, pdf for --pdf, odt for --odt)
@@ -27,12 +34,17 @@ const cli = meow(`
     $ mmm --odt README.md
     $ mmm --odt README.md output.odt
     $ mmm --profile print --pdf README.md
+    $ mmm --settings
     $ mmm docs/guide.md
     $ mmm --check
 `, {
   importMeta: import.meta,
   flags: {
     check: {
+      type: 'boolean',
+      default: false
+    },
+    settings: {
       type: 'boolean',
       default: false
     },
@@ -53,6 +65,20 @@ const cli = meow(`
 
 // Main entry point
 async function main() {
+  // Handle settings command
+  if (cli.flags.settings) {
+    // Spawn the settings CLI in a child process to handle TTY properly
+    const child = spawn('node', [path.join(__dirname, 'settings-cli.js')], {
+      stdio: 'inherit'
+    });
+    
+    child.on('exit', (code) => {
+      process.exit(code || 0);
+    });
+    
+    return;
+  }
+  
   // Check dependencies
   const deps = checkDependencies();
   

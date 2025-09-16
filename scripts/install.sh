@@ -22,11 +22,11 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# Create the executable
+# Create the executable wrapper
 echo -e "${BLUE}📦 Creating executable...${NC}"
 npm run build:simple
 if [ $? -ne 0 ]; then
-    echo -e "${RED}❌ Failed to create executable${NC}"
+    echo -e "${RED}❌ Failed to create standalone binary${NC}"
     exit 1
 fi
 
@@ -72,17 +72,24 @@ else
     echo "  Fedora: dnf install chafa"
 fi
 
-# Mermaid diagram support (bundled dependency)
-echo -e "${GREEN}✅ mermaid-cli bundled - diagram rendering will work${NC}"
-echo -e "  ${BLUE}(Using @mermaid-js/mermaid-cli from node_modules)${NC}"
+# Check for mermaid-cli installation
+if command -v mmdc &> /dev/null; then
+    echo -e "${GREEN}✅ mermaid-cli found - diagram rendering will work${NC}"
+else
+    echo -e "${YELLOW}⚠️  mermaid-cli not found - install for mermaid diagram support:${NC}"
+    echo "  Arch/Manjaro: yay -S mermaid-cli or pacman -S mermaid-cli"
+    echo "  Ubuntu/Debian: npm install -g @mermaid-js/mermaid-cli"
+    echo "  macOS: brew install mermaid-cli or npm install -g @mermaid-js/mermaid-cli"
+    echo "  Fedora: npm install -g @mermaid-js/mermaid-cli"
+fi
 
 echo ""
 echo -e "${GREEN}🎉 Installation complete!${NC}"
 echo ""
 echo "Available commands:"
 echo -e "  ${BLUE}mmm <file.md>${NC}         - Render markdown with images"
+echo -e "  ${BLUE}mmm --settings${NC}        - Configure MMM settings interactively"
 echo -e "  ${BLUE}mmm --help${NC}            - Show help and options"
-echo -e "  ${BLUE}npm run settings${NC}      - Configure MMM settings"
 echo ""
 echo "Try it now:"
 echo -e "  ${GREEN}mmm README.md${NC}"

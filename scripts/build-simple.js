@@ -13,30 +13,30 @@ const execAsync = promisify(exec);
 
 async function buildSimple() {
   console.log('🔨 Building TypeScript...');
-  
+
   try {
     // First, ensure TypeScript is compiled
     await execAsync('npm run build', { cwd: projectRoot });
-    
+
     // Get the absolute path to the dist directory
     const distPath = path.join(projectRoot, 'dist', 'index-direct.js');
-    
-    // Create a wrapper that uses the absolute path
+
+    // Create a simple wrapper that imports the built application
     const wrapperContent = `#!/usr/bin/env node
 import '${distPath}';
 `;
-    
+
     // Write the wrapper file
     const mmmPath = path.join(projectRoot, 'mmm');
     await fs.writeFile(mmmPath, wrapperContent, 'utf-8');
-    
+
     // Make it executable
     await fs.chmod(mmmPath, 0o755);
-    
+
     console.log('✅ Build complete! Executable created at: ./mmm');
     console.log('📝 You can now run: ./mmm <markdown-file>');
     console.log('📝 To install to ~/.local/bin: ./scripts/install.sh');
-    
+
   } catch (error) {
     console.error('❌ Build failed:', error);
     process.exit(1);

@@ -5,6 +5,7 @@ import os from 'os';
 import readline from 'readline/promises';
 import chalk from 'chalk';
 import { loadConfig, initializeConfig, type MMVConfig } from './lib/config.js';
+import { getSystemFonts, displayFontMenu, validateFont } from './lib/font-utils.js';
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -451,9 +452,12 @@ class SettingsManager {
     console.log(`3. Headers/Footers: ${profile.pdf?.headerFooter?.enabled ? 'Enabled' : 'Disabled'}`);
     console.log(`4. Page numbers: ${profile.pdf?.headerFooter?.showPageNumbers ? 'Shown' : 'Hidden'}`);
     console.log(`5. Body font size: ${profile.fontSizes?.body || '11pt'}`);
-    console.log('6. Back to main menu\n');
+    console.log(`6. Body font: ${profile.fonts?.body || 'default'}`);
+    console.log(`7. Heading font: ${profile.fonts?.heading || 'default'}`);
+    console.log(`8. Code font: ${profile.fonts?.code || 'monospace'}`);
+    console.log('9. Back to main menu\n');
 
-    const choice = await rl.question('Select setting to edit (1-6): ');
+    const choice = await rl.question('Select setting to edit (1-9): ');
     
     switch (choice) {
       case '1':
@@ -515,8 +519,20 @@ class SettingsManager {
           console.log(chalk.red('Invalid font size. Use format like "11pt".'));
         }
         break;
-      
+
       case '6':
+        await this.selectFont(profile, 'body');
+        break;
+
+      case '7':
+        await this.selectFont(profile, 'heading');
+        break;
+
+      case '8':
+        await this.selectFont(profile, 'code');
+        break;
+
+      case '9':
         await this.showMainMenu();
         return;
     }
@@ -674,6 +690,98 @@ class SettingsManager {
 
   async pause() {
     await rl.question('\nPress Enter to continue...');
+  }
+
+  async selectFont(profile: any, fontType: 'body' | 'heading' | 'code') {
+    console.clear();
+    console.log(chalk.cyan.bold(`\n═══ Select ${fontType.charAt(0).toUpperCase() + fontType.slice(1)} Font ═══\n`));
+
+    console.log(chalk.yellow('Loading system fonts...\n'));
+    const fonts = await getSystemFonts();
+
+    if (fonts.length === 0) {
+      console.log(chalk.red('No fonts found. Enter font name manually.'));
+      const fontName = await rl.question('Enter font family name: ');
+      if (fontName) {
+        if (!profile.fonts) profile.fonts = {} as any;
+        profile.fonts[fontType] = fontName;
+        await this.saveConfig();
+        console.log(chalk.green('✅ Font saved!'));
+      }
+      return;
+    }
+
+    let currentPage = 0;
+    const pageSize = 20;
+
+    while (true) {
+      console.clear();
+      console.log(chalk.cyan.bold(`\n═══ Select ${fontType.charAt(0).toUpperCase() + fontType.slice(1)} Font ═══\n`));
+      console.log(chalk.yellow(`Current font: ${profile.fonts?.[fontType] || 'default'}\n`));
+
+      const { displayText, totalPages, currentPage: displayPage } = displayFontMenu(fonts, currentPage, pageSize);
+      console.log(displayText);
+      console.log(chalk.gray(`\nPage ${displayPage} of ${totalPages}\n`));
+
+      console.log('Options:');
+      console.log('  n - Next page');
+      console.log('  p - Previous page');
+      console.log('  m - Enter font name manually');
+      console.log('  d - Use default font');
+      console.log('  q - Cancel\n');
+
+      const choice = await rl.question('Select font number or option: ');
+
+      if (choice.toLowerCase() === 'n') {
+        if (currentPage < totalPages - 1) {
+          currentPage++;
+        }
+      } else if (choice.toLowerCase() === 'p') {
+        if (currentPage > 0) {
+          currentPage--;
+        }
+      } else if (choice.toLowerCase() === 'm') {
+        const fontName = await rl.question('Enter font family name: ');
+        if (fontName) {
+          const isValid = await validateFont(fontName);
+          if (!isValid) {
+            console.log(chalk.yellow('Warning: Font may not be available on the system.'));
+            const confirm = await rl.question('Use anyway? (yes/no): ');
+            if (confirm.toLowerCase() !== 'yes' && confirm.toLowerCase() !== 'y') {
+              continue;
+            }
+          }
+          if (!profile.fonts) profile.fonts = {} as any;
+          profile.fonts[fontType] = fontName;
+          await this.saveConfig();
+          console.log(chalk.green('✅ Font saved!'));
+          await this.pause();
+          return;
+        }
+      } else if (choice.toLowerCase() === 'd') {
+        if (!profile.fonts) profile.fonts = {} as any;
+        profile.fonts[fontType] = fontType === 'code' ? 'monospace' : 'default';
+        await this.saveConfig();
+        console.log(chalk.green('✅ Font reset to default!'));
+        await this.pause();
+        return;
+      } else if (choice.toLowerCase() === 'q') {
+        return;
+      } else {
+        const fontIndex = parseInt(choice) - 1;
+        if (!isNaN(fontIndex) && fontIndex >= 0 && fontIndex < fonts.length) {
+          if (!profile.fonts) profile.fonts = {} as any;
+          profile.fonts[fontType] = fonts[fontIndex].family;
+          await this.saveConfig();
+          console.log(chalk.green(`✅ Font set to: ${fonts[fontIndex].family}`));
+          await this.pause();
+          return;
+        } else {
+          console.log(chalk.red('Invalid selection.'));
+          await this.pause();
+        }
+      }
+    }
   }
 }
 

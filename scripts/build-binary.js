@@ -14,8 +14,11 @@ const execAsync = promisify(exec);
 
 async function buildBinary() {
   console.log('🔨 Building TypeScript...');
-  
+
   try {
+    // Ensure build directory exists
+    await fs.mkdir(path.join(projectRoot, 'build'), { recursive: true });
+
     // Bundle with esbuild
     console.log('📦 Bundling with esbuild...');
     await esbuild.build({
@@ -25,9 +28,17 @@ async function buildBinary() {
       platform: 'node',
       format: 'esm',
       target: 'node20',
-      external: ['sharp', 'puppeteer', 'react-devtools-core'],
-      minify: true,
-      sourcemap: false
+      // Only exclude native modules that can't be bundled
+      external: ['sharp'],  // Keep puppeteer bundled for standalone mermaid rendering
+      minify: false,  // Keep it readable for now to debug issues
+      sourcemap: false,
+      metafile: true,
+      define: {
+        'import.meta.url': 'importMetaUrl'
+      },
+      banner: {
+        js: `const importMetaUrl = 'file://' + __filename;`
+      }
     });
 
     // Check Node.js version for SEA support
@@ -42,7 +53,10 @@ async function buildBinary() {
       await buildWithNexe();
     }
     
-    console.log('✅ Build complete! Binary available at: ./mmv');
+    // Rename output to mmm
+    await fs.rename(path.join(projectRoot, 'mmv'), path.join(projectRoot, 'mmm'));
+
+    console.log('✅ Build complete! Standalone binary available at: ./mmm');
     console.log('📝 Run: ./scripts/install.sh to install to ~/.local/bin/');
     
   } catch (error) {
@@ -54,32 +68,54 @@ async function buildBinary() {
 async function buildWithSEA() {
   const buildDir = path.join(projectRoot, 'build');
   const configFile = path.join(buildDir, 'sea-config.json');
-  
+
+  // Create a wrapper that marks this as standalone
+  const wrapperContent = `// Mark as standalone binary
+globalThis.__is_standalone = true;
+
+// Import the actual application
+import('./bundle.js');
+`;
+
+  await fs.writeFile(path.join(buildDir, 'wrapper.mjs'), wrapperContent);
+
   // Create SEA config
   await fs.writeFile(configFile, JSON.stringify({
-    main: 'bundle.js',
+    main: 'wrapper.mjs',
     output: 'sea-prep.blob',
     disableExperimentalSEAWarning: true,
     useSnapshot: false,
     useCodeCache: true
   }, null, 2));
-  
+
   // Generate blob
   await execAsync(`node --experimental-sea-config "${configFile}"`, { cwd: buildDir });
-  
+
   // Copy node executable
   const { stdout: nodePath } = await execAsync('which node');
   await fs.copyFile(nodePath.trim(), path.join(projectRoot, 'mmv'));
-  
+
   // Inject blob
   await execAsync(`npx postject mmv NODE_SEA_BLOB build/sea-prep.blob --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2`);
-  
+
   // Make executable
   await fs.chmod(path.join(projectRoot, 'mmv'), 0o755);
 }
 
 async function buildWithNexe() {
-  await execAsync(`npx nexe build/bundle.js -o mmv --target node20-linux-x64`);
+  // Create wrapper with standalone flag
+  const wrapperContent = `
+// Mark as standalone binary
+globalThis.__is_standalone = true;
+
+// Import the bundled application
+import './bundle.js';
+`;
+
+  await fs.writeFile(path.join(projectRoot, 'build', 'wrapper.js'), wrapperContent);
+
+  // Build with nexe
+  await execAsync(`npx nexe build/wrapper.js -o mmv --target node20-linux-x64`);
 }
 
 buildBinary();
