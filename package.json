@@ -1,6 +1,6 @@
 {
   "name": "mmm",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Mixed Media Markdown - Terminal markdown viewer with sixel graphics support",
   "main": "dist/index-direct.js",
   "bin": {
