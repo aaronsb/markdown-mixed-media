@@ -50,10 +50,8 @@ EOF
     # Make executable
     chmod 755 "$pkgdir/usr/bin/$pkgname"
 
-    # Install license if it exists
-    if [ -f LICENSE ]; then
-        install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
-    fi
+    # Install license
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 
     # Install documentation
     install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
