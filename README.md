@@ -18,6 +18,26 @@ A powerful terminal-based markdown viewer and converter with inline image suppor
 
 ## 🚀 Quick Install
 
+### From AUR (Arch Linux)
+
+```bash
+# Using yay
+yay -S mmm
+
+# Using paru
+paru -S mmm
+
+# Or build manually
+git clone https://aur.archlinux.org/mmm.git
+cd mmm
+makepkg -si
+```
+
+For the development version:
+```bash
+yay -S mmm-git
+```
+
 ### From Source
 
 ```bash
