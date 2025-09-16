@@ -1,0 +1,68 @@
+# Maintainer: Aaron Bockelie <aaronsb@gmail.com>
+pkgname=mmm-git
+pkgver=1.0.0.r0.g8c748db
+pkgrel=1
+pkgdesc="Markdown Mixed Media - A powerful terminal markdown viewer with image support, Mermaid diagrams, and PDF/ODT export (git version)"
+arch=('any')
+url="https://github.com/aaronsb/markdown-mixed-media"
+license=('MIT')
+depends=('nodejs>=20')
+optdepends=(
+    'chafa: Terminal image rendering support'
+    'mermaid-cli: Mermaid diagram rendering'
+    'chromium: PDF generation support'
+)
+makedepends=('npm' 'git')
+provides=('mmm')
+conflicts=('mmm')
+source=("git+https://github.com/aaronsb/markdown-mixed-media.git")
+sha256sums=('SKIP')
+
+pkgver() {
+    cd "markdown-mixed-media"
+    printf "%s.r%s.g%s" \
+        "$(grep '"version"' package.json | cut -d '"' -f4)" \
+        "$(git rev-list --count HEAD)" \
+        "$(git rev-parse --short HEAD)"
+}
+
+build() {
+    cd "$srcdir/markdown-mixed-media"
+
+    # Install dependencies
+    npm install --production=false
+
+    # Build the project
+    npm run build
+
+    # Create the executable
+    npm run build:simple
+}
+
+package() {
+    cd "$srcdir/markdown-mixed-media"
+
+    # Create directories
+    install -dm755 "$pkgdir/usr/lib/mmm"
+    install -dm755 "$pkgdir/usr/bin"
+
+    # Copy built files
+    cp -r dist "$pkgdir/usr/lib/mmm/"
+    cp -r node_modules "$pkgdir/usr/lib/mmm/"
+    cp package.json "$pkgdir/usr/lib/mmm/"
+
+    # Create wrapper script
+    cat > "$pkgdir/usr/bin/mmm" << EOF
+#!/usr/bin/env node
+import '/usr/lib/mmm/dist/index-direct.js';
+EOF
+
+    # Make executable
+    chmod 755 "$pkgdir/usr/bin/mmm"
+
+    # Install license
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/mmm-git/LICENSE"
+
+    # Install documentation
+    install -Dm644 README.md "$pkgdir/usr/share/doc/mmm-git/README.md"
+}
