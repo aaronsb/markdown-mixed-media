@@ -145,28 +145,59 @@ The script will:
 
 ### Release Workflow
 
-The release process is fully automated with two scripts that work together:
+The release process is fully automated with two scripts that work together. This workflow ensures:
+- **Immutable artifacts**: GitHub creates the tarball once, checksum never changes
+- **Single source of truth**: AUR pulls from GitHub releases
+- **Automated documentation**: Release notes and commit messages generated from git history
+- **Error prevention**: Scripts validate everything exists before proceeding
+- **Zero manual work**: Checksums and version info handled automatically
 
-1. **Make changes and commit** to main branch
+#### Quick Release (Fully Automated)
 
-2. **Create GitHub Release** (creates immutable artifact with checksum):
+For a complete release in 2 commands:
+
+```bash
+# Step 1: Create GitHub Release (auto-push)
+npm run release:create -- -v 1.0.x -p
+
+# Step 2: Update AUR (auto-push)
+npm run aur:update -- -p
+```
+
+Done! The package is now available on both GitHub and AUR.
+
+#### Detailed Release Steps
+
+**1. Make changes and commit** to main branch
+   ```bash
+   git add .
+   git commit -m "feat: your new feature"
+   git push origin main
+   ```
+
+**2. Create GitHub Release** (creates immutable artifact with checksum)
    ```bash
    # Interactive mode with auto-generated release notes
    npm run release:create -- -v 1.0.x
 
-   # Or automated mode
+   # Automated mode (no prompts)
+   npm run release:create -- -v 1.0.x -p
+
+   # Or use the script directly
    ./scripts/create-release.sh -v 1.0.x -p
    ```
 
    This script will:
-   - Generate release notes from git commits
+   - Parse git commits and categorize by type (feat/fix/docs/chore)
+   - Generate formatted release notes
    - Create and push git tag
    - Create GitHub Release with notes
-   - Calculate and display SHA256 checksum
+   - Download tarball and calculate SHA256 checksum
+   - Display checksum in release notes
 
-3. **Update AUR** (pulls from GitHub release artifact):
+**3. Update AUR** (pulls from GitHub release artifact)
    ```bash
-   # Auto-detect version, interactive mode
+   # Auto-detect version from latest tag, interactive mode
    npm run aur:update
 
    # Specify version and auto-push
@@ -177,17 +208,50 @@ The release process is fully automated with two scripts that work together:
    ```
 
    This script will:
-   - Clone AUR repo if it doesn't exist
+   - Clone AUR repo if it doesn't exist (one-time setup)
    - Verify GitHub release exists
-   - Download tarball from GitHub
+   - Download tarball from GitHub release
    - Calculate SHA256 checksum (always matches GitHub's)
-   - Update PKGBUILD and .SRCINFO
-   - Generate commit message from recent changes
-   - Commit and optionally push to AUR
+   - Update PKGBUILD with new version and checksum
+   - Generate .SRCINFO
+   - Generate commit message from git history
+   - Commit changes
+   - Optionally push to AUR
 
-**Why this workflow?**
-- GitHub creates immutable release artifacts
-- Checksums never change (no need to recalculate)
-- Single source of truth (GitHub Releases)
-- Automated release notes from commit messages
-- No manual checksum management
+#### Script Options
+
+Both scripts support:
+- `-v VERSION` or `--version VERSION` - Specify version to release/update
+- `-p` or `--push` - Auto-push without prompting
+- `-h` or `--help` - Show detailed help
+
+#### Environment Variables
+
+- `AUR_REPO_DIR` - Path to AUR repository (default: `~/Projects/aur/mmm`)
+
+#### Example: Complete Release Session
+
+```bash
+# Make your changes
+git add .
+git commit -m "feat: add new markdown extension support"
+git push origin main
+
+# Create release (fully automated)
+npm run release:create -- -v 1.0.3 -p
+
+# Update AUR (fully automated)
+npm run aur:update -- -p
+
+# Verify
+yay -Syu mmm  # Users can now get v1.0.3
+```
+
+#### Why This Workflow Works
+
+1. **GitHub creates immutable artifacts** - When you push a tag, GitHub generates a tarball that never changes
+2. **Checksums are stable** - The tarball checksum is calculated once and remains constant
+3. **AUR pulls from GitHub** - PKGBUILD points to GitHub's archive URL
+4. **No manual checksum management** - Scripts handle all checksum calculation automatically
+5. **Automated documentation** - Release notes and commit messages generated from git history
+6. **Safe automation** - Scripts validate releases exist and checksums match before proceeding
