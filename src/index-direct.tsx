@@ -4,6 +4,7 @@ import { renderMarkdownDirect } from './direct-renderer.js';
 import { renderMarkdownToPdf } from './lib/pdf-renderer.js';
 import { renderMarkdownToOdt } from './lib/odt-renderer.js';
 import { checkDependencies, printDependencyWarnings } from './lib/check-deps.js';
+import { getVersionString } from './version.js';
 import path from 'path';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
@@ -12,6 +13,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const cli = meow(`
+  MMM - Markdown Mixed Media ${getVersionString()}
+
   Usage
     $ mmm [file]
     $ cat file.md | mmm

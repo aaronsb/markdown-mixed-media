@@ -21,6 +21,9 @@ mmm-*.tar.xz
 # TypeScript
 *.tsbuildinfo
 
+# Auto-generated files
+src/version.ts
+
 # Testing
 coverage/
 .nyc_output/
