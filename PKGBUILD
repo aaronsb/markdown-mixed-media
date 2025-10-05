@@ -15,7 +15,7 @@ optdepends=(
 makedepends=('npm' 'git')
 options=('!strip')  # Don't strip binaries to avoid fakeroot issues
 source=("$pkgname-$pkgver.tar.gz::https://github.com/aaronsb/markdown-mixed-media/archive/v$pkgver.tar.gz")
-sha256sums=('0d39f4532b7de07d929047c4ca39ce372d62018d703c066323befb002bac0b06')
+sha256sums=('28a5f4dad31bb002de3855cfe2db56e2e6b6e60f43eb7153f66d9cec58e545fd')
 
 build() {
     cd "$srcdir/markdown-mixed-media-$pkgver"
