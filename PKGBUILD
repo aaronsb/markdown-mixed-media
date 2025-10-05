@@ -1,7 +1,7 @@
 # Maintainer: Aaron Bockelie <aaronsb@gmail.com>
 pkgname=mmm
-pkgver=1.0.1
-pkgrel=2
+pkgver=1.0.2
+pkgrel=1
 pkgdesc="Markdown Mixed Media - A powerful terminal markdown viewer with image support, Mermaid diagrams, and PDF/ODT export"
 arch=('any')
 url="https://github.com/aaronsb/markdown-mixed-media"
@@ -15,7 +15,7 @@ optdepends=(
 makedepends=('npm' 'git')
 options=('!strip')  # Don't strip binaries to avoid fakeroot issues
 source=("$pkgname-$pkgver.tar.gz::https://github.com/aaronsb/markdown-mixed-media/archive/v$pkgver.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('0d39f4532b7de07d929047c4ca39ce372d62018d703c066323befb002bac0b06')
 
 build() {
     cd "$srcdir/markdown-mixed-media-$pkgver"
