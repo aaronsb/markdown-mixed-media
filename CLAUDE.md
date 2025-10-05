@@ -166,19 +166,24 @@ The release process is fully automated with two scripts that work together:
 
 3. **Update AUR** (pulls from GitHub release artifact):
    ```bash
-   # Auto-detect version from latest tag
+   # Auto-detect version, interactive mode
    npm run aur:update
 
-   # Or specify version
-   ./scripts/update-aur.sh -v 1.0.x
+   # Specify version and auto-push
+   npm run aur:update -- -v 1.0.x -p
+
+   # Or use the script directly
+   ./scripts/update-aur.sh -v 1.0.x -p
    ```
 
    This script will:
+   - Clone AUR repo if it doesn't exist
    - Verify GitHub release exists
    - Download tarball from GitHub
    - Calculate SHA256 checksum (always matches GitHub's)
    - Update PKGBUILD and .SRCINFO
-   - Commit and push to AUR
+   - Generate commit message from recent changes
+   - Commit and optionally push to AUR
 
 **Why this workflow?**
 - GitHub creates immutable release artifacts

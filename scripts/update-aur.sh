@@ -202,7 +202,19 @@ git diff PKGBUILD .SRCINFO
 print_info "Committing changes..."
 git add PKGBUILD .SRCINFO
 
-COMMIT_MSG="Update to $VERSION - Add stdin support for piped input"
+# Generate commit message from git log
+PREV_TAG=$(git -C "$PROJECT_DIR" describe --tags --abbrev=0 "v$VERSION^" 2>/dev/null || echo "")
+if [[ -n "$PREV_TAG" ]]; then
+    # Extract main features from commits since last tag
+    COMMIT_SUMMARY=$(git -C "$PROJECT_DIR" log "${PREV_TAG}..v${VERSION}" --pretty=format:"%s" --grep="^feat" | head -1 | sed 's/^feat: //')
+    if [[ -z "$COMMIT_SUMMARY" ]]; then
+        COMMIT_SUMMARY="Version update"
+    fi
+else
+    COMMIT_SUMMARY="Version update"
+fi
+
+COMMIT_MSG="Update to $VERSION - $COMMIT_SUMMARY"
 git commit -m "$COMMIT_MSG"
 print_success "Changes committed"
 
