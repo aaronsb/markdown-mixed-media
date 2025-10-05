@@ -19,6 +19,7 @@
     "build:simple": "node scripts/build-simple.js",
     "package": "node scripts/build-binary.js",
     "install:local": "npm run build:binary && ./scripts/install.sh",
+    "release:create": "./scripts/create-release.sh",
     "aur:update": "./scripts/update-aur.sh",
     "test": "jest"
   },

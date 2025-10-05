@@ -145,13 +145,44 @@ The script will:
 
 ### Release Workflow
 
-1. **Make changes and commit**
-2. **Create and push git tag:**
+The release process is fully automated with two scripts that work together:
+
+1. **Make changes and commit** to main branch
+
+2. **Create GitHub Release** (creates immutable artifact with checksum):
    ```bash
-   git tag -a v1.0.x -m "Release v1.0.x - Description"
-   git push origin v1.0.x
+   # Interactive mode with auto-generated release notes
+   npm run release:create -- -v 1.0.x
+
+   # Or automated mode
+   ./scripts/create-release.sh -v 1.0.x -p
    ```
-3. **Update AUR:**
+
+   This script will:
+   - Generate release notes from git commits
+   - Create and push git tag
+   - Create GitHub Release with notes
+   - Calculate and display SHA256 checksum
+
+3. **Update AUR** (pulls from GitHub release artifact):
    ```bash
+   # Auto-detect version from latest tag
    npm run aur:update
+
+   # Or specify version
+   ./scripts/update-aur.sh -v 1.0.x
    ```
+
+   This script will:
+   - Verify GitHub release exists
+   - Download tarball from GitHub
+   - Calculate SHA256 checksum (always matches GitHub's)
+   - Update PKGBUILD and .SRCINFO
+   - Commit and push to AUR
+
+**Why this workflow?**
+- GitHub creates immutable release artifacts
+- Checksums never change (no need to recalculate)
+- Single source of truth (GitHub Releases)
+- Automated release notes from commit messages
+- No manual checksum management

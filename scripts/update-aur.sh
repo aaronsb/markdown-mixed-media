@@ -119,6 +119,23 @@ if [[ ! -d "$AUR_REPO_DIR" ]]; then
     fi
 fi
 
+# Check if GitHub release exists (optional but recommended)
+if command -v gh &> /dev/null; then
+    print_info "Checking if GitHub release exists..."
+    if gh release view "v$VERSION" &> /dev/null; then
+        print_success "GitHub release v$VERSION found"
+    else
+        print_warning "GitHub release v$VERSION not found"
+        print_info "Git tag exists but no release created yet"
+        echo "Consider running: ./scripts/create-release.sh -v $VERSION"
+        read -p "Continue anyway? (y/n) " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            exit 1
+        fi
+    fi
+fi
+
 # Download tarball and calculate checksum
 print_info "Downloading release tarball..."
 TARBALL_URL="https://github.com/$GITHUB_REPO/archive/v$VERSION.tar.gz"
@@ -128,6 +145,7 @@ TARBALL_PATH="$TEMP_DIR/$PKGNAME-$VERSION.tar.gz"
 if ! curl -L -o "$TARBALL_PATH" "$TARBALL_URL" 2>/dev/null; then
     print_error "Failed to download tarball from: $TARBALL_URL"
     print_error "Make sure the git tag v$VERSION exists on GitHub"
+    print_error "You can create a release with: ./scripts/create-release.sh -v $VERSION"
     rm -rf "$TEMP_DIR"
     exit 1
 fi
