@@ -14,6 +14,7 @@ const __dirname = path.dirname(__filename);
 const cli = meow(`
   Usage
     $ mmm [file]
+    $ cat file.md | mmm
     $ mmm --pdf [file] [output]
     $ mmm --odt [file] [output]
     $ mmm --settings
@@ -29,6 +30,8 @@ const cli = meow(`
 
   Examples
     $ mmm README.md
+    $ cat README.md | mmm
+    $ echo "# Hello" | mmm
     $ mmm --pdf README.md
     $ mmm --pdf README.md output.pdf
     $ mmm --odt README.md
@@ -63,6 +66,28 @@ const cli = meow(`
   }
 });
 
+// Helper to read from stdin
+async function readStdin(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+
+    process.stdin.on('data', (chunk) => {
+      chunks.push(chunk);
+    });
+
+    process.stdin.on('end', () => {
+      resolve(Buffer.concat(chunks).toString('utf-8'));
+    });
+
+    process.stdin.on('error', reject);
+  });
+}
+
+// Check if stdin has data
+function hasStdinData(): boolean {
+  return !process.stdin.isTTY;
+}
+
 // Main entry point
 async function main() {
   // Handle settings command
@@ -71,17 +96,17 @@ async function main() {
     const child = spawn('node', [path.join(__dirname, 'settings-cli.js')], {
       stdio: 'inherit'
     });
-    
+
     child.on('exit', (code) => {
       process.exit(code || 0);
     });
-    
+
     return;
   }
-  
+
   // Check dependencies
   const deps = checkDependencies();
-  
+
   if (cli.flags.check) {
     console.log('Dependency Status:');
     console.log(`  chafa:    ${deps.chafa ? '✅' : '❌'}`);
@@ -89,11 +114,12 @@ async function main() {
     printDependencyWarnings(deps);
     process.exit(deps.hasImageSupport ? 0 : 1);
   }
-  
+
   const inputFile = cli.input[0];
-  
-  if (!inputFile) {
-    console.error('Please provide a markdown file to view');
+  const hasStdin = hasStdinData();
+
+  if (!inputFile && !hasStdin) {
+    console.error('Please provide a markdown file to view or pipe content via stdin');
     console.log(cli.help);
     process.exit(1);
   }
@@ -101,17 +127,25 @@ async function main() {
   try {
     if (cli.flags.pdf) {
       // PDF generation mode
+      if (hasStdin) {
+        console.error('PDF generation from stdin is not supported. Please provide a file.');
+        process.exit(1);
+      }
       const outputFile = cli.input[1] || inputFile.replace(/\.md$/i, '.pdf');
       const profile = cli.flags.profile || 'pdf';
-      
+
       console.log(`Generating PDF from ${inputFile}...`);
       const generatedPath = await renderMarkdownToPdf(inputFile, outputFile, profile);
       console.log(`✅ PDF generated successfully: ${path.resolve(generatedPath)}`);
     } else if (cli.flags.odt) {
       // ODT generation mode
+      if (hasStdin) {
+        console.error('ODT generation from stdin is not supported. Please provide a file.');
+        process.exit(1);
+      }
       const outputFile = cli.input[1] || inputFile.replace(/\.md$/i, '.odt');
       const profile = cli.flags.profile || 'odt';
-      
+
       console.log(`Generating ODT from ${inputFile}...`);
       const generatedPath = await renderMarkdownToOdt(inputFile, outputFile, profile);
       console.log(`✅ ODT generated successfully: ${path.resolve(generatedPath)}`);
@@ -121,8 +155,13 @@ async function main() {
       if (!deps.hasImageSupport) {
         printDependencyWarnings(deps);
       }
-      
-      await renderMarkdownDirect(inputFile);
+
+      if (hasStdin) {
+        const content = await readStdin();
+        await renderMarkdownDirect(content, process.cwd());
+      } else {
+        await renderMarkdownDirect(inputFile);
+      }
     }
   } catch (error) {
     if (cli.flags.pdf) {

@@ -125,20 +125,31 @@ async function createRenderer(profile: any) {
   return renderer;
 }
 
-export async function renderMarkdownDirect(filePath: string): Promise<void> {
+export async function renderMarkdownDirect(filePathOrContent: string, baseDir?: string): Promise<void> {
   try {
     // Load profile
     const profile = await loadProfile('terminal');
-    
+
     // Create renderer with profile configuration
     const renderer = await createRenderer(profile);
-    
+
     // @ts-ignore - type mismatch with marked versions
     marked.setOptions({ renderer });
-    
-    // Read the markdown file
-    const content = await fs.readFile(filePath, 'utf-8');
-    const markdownDir = path.dirname(path.resolve(filePath));
+
+    // Determine if input is a file path or content
+    let content: string;
+    let markdownDir: string;
+
+    if (baseDir) {
+      // Content was passed directly with a base directory
+      content = filePathOrContent;
+      markdownDir = baseDir;
+    } else {
+      // File path was passed
+      const filePath = filePathOrContent;
+      content = await fs.readFile(filePath, 'utf-8');
+      markdownDir = path.dirname(path.resolve(filePath));
+    }
     
     // Split content by lines to process images and mermaid blocks
     const lines = content.split('\n');

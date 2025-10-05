@@ -113,6 +113,7 @@ npm install -g @mermaid-js/mermaid-cli
 
 ```bash
 mmm [file] [options]
+cat file.md | mmm               # Read from stdin
 
 Options:
   --help, -h     Show help
@@ -125,6 +126,8 @@ Options:
 
 Examples:
   mmm README.md                    # View in terminal
+  cat README.md | mmm              # Read from piped input
+  echo "# Hello" | mmm             # Render markdown from echo
   mmm --pdf README.md              # Generate PDF (auto-named)
   mmm --pdf README.md output.pdf   # Generate PDF with custom name
   mmm --odt README.md              # Generate ODT document

@@ -73,6 +73,10 @@ Key settings for terminal rendering:
 # Render with images (recommended)
 npm run dev:direct document.md
 
+# Render from piped input
+cat document.md | npm run start
+echo "# Hello World" | npm run start
+
 # Simple text-only rendering
 npm run dev:simple document.md
 

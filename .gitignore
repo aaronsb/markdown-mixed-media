@@ -13,10 +13,10 @@ mmv-*
 # AUR package build files
 .SRCINFO
 .SRCINFO-git
-*.tar.gz
-*.tar.xz
-src/
-pkg/
+mmm-*.tar.gz
+mmm-*.tar.xz
+/src/
+/pkg/
 
 # TypeScript
 *.tsbuildinfo
