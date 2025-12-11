@@ -72,9 +72,39 @@ export async function renderMarkdownToPdf(
 async function processMermaidAndSvgBlocks(content: string, _markdownDir: string, profile: RenderProfile): Promise<string> {
   // First, extract and process all embedded SVG blocks to prevent page break issues
   let processedContent = await processEmbeddedSvgs(content);
-  
+
+  // Process LaTeX math expressions before markdown parsing
+  processedContent = processLatexMath(processedContent);
+
   // Then process Mermaid blocks
   return processMermaidBlocks(processedContent, _markdownDir, profile);
+}
+
+// Process LaTeX math expressions and convert to KaTeX-compatible HTML
+function processLatexMath(content: string): string {
+  let result = content;
+
+  // Process display math ($$...$$) - must come first to avoid conflicts with inline
+  // Use a placeholder that won't be mangled by markdown
+  result = result.replace(/\$\$([\s\S]*?)\$\$/g, (_match, math) => {
+    const escapedMath = math.trim()
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    return `<div class="math-display" data-math="${encodeURIComponent(escapedMath)}"></div>`;
+  });
+
+  // Process inline math ($...$) - be careful not to match currency or other uses
+  // Only match single $ when not preceded/followed by space or another $
+  result = result.replace(/(?<!\$)\$(?!\$)([^\$\n]+?)\$(?!\$)/g, (_match, math) => {
+    const escapedMath = math.trim()
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    return `<span class="math-inline" data-math="${encodeURIComponent(escapedMath)}"></span>`;
+  });
+
+  return result;
 }
 
 // Process embedded SVGs before markdown parsing to prevent page break issues
@@ -255,7 +285,7 @@ function getMimeType(ext: string): string {
 function generateHtmlDocument(content: string, profile: RenderProfile, title: string): string {
   // Generate CSS from profile
   const css = generateCss(profile);
-  
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -263,6 +293,8 @@ function generateHtmlDocument(content: string, profile: RenderProfile, title: st
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${title}</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
   <style>
     ${css}
   </style>
@@ -271,6 +303,25 @@ function generateHtmlDocument(content: string, profile: RenderProfile, title: st
   <div class="content">
     ${content}
   </div>
+  <script>
+    // Render all math elements using KaTeX
+    document.querySelectorAll('.math-display').forEach(el => {
+      const math = decodeURIComponent(el.getAttribute('data-math') || '');
+      try {
+        katex.render(math, el, { displayMode: true, throwOnError: false });
+      } catch (e) {
+        el.textContent = math;
+      }
+    });
+    document.querySelectorAll('.math-inline').forEach(el => {
+      const math = decodeURIComponent(el.getAttribute('data-math') || '');
+      try {
+        katex.render(math, el, { displayMode: false, throwOnError: false });
+      } catch (e) {
+        el.textContent = math;
+      }
+    });
+  </script>
 </body>
 </html>`;
 }
@@ -426,18 +477,30 @@ function generateCss(profile: RenderProfile): string {
       margin: 2em 0;
     }
     
+    /* Math styling */
+    .math-display {
+      display: block;
+      text-align: center;
+      margin: 1em 0;
+      overflow-x: auto;
+    }
+
+    .math-inline {
+      display: inline;
+    }
+
     /* Print-specific styles */
     @media print {
       body {
         background: white;
         color: black;
       }
-      
+
       a {
         color: black;
         text-decoration: underline;
       }
-      
+
       pre {
         white-space: pre-wrap;
         word-wrap: break-word;
@@ -481,8 +544,31 @@ async function generatePdf(html: string, outputPath: string, profile: RenderProf
           }))
       );
     });
-    
-    // Additional wait to ensure rendering is complete
+
+    // Wait for KaTeX to finish rendering math elements
+    await page.evaluate(() => {
+      // Check if there are math elements that need rendering
+      const mathElements = document.querySelectorAll('.math-display, .math-inline');
+      // KaTeX renders synchronously, but we need to wait for the CSS/fonts to load
+      // Check if KaTeX has rendered by looking for .katex elements
+      return new Promise<void>((resolve) => {
+        if (mathElements.length === 0) {
+          resolve();
+          return;
+        }
+        const checkRendered = () => {
+          const rendered = document.querySelectorAll('.katex');
+          if (rendered.length > 0) {
+            resolve();
+          } else {
+            setTimeout(checkRendered, 100);
+          }
+        };
+        checkRendered();
+      });
+    });
+
+    // Additional wait to ensure rendering is complete (fonts, etc.)
     await new Promise(resolve => setTimeout(resolve, 500));
     
     // Generate PDF

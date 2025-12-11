@@ -130,8 +130,8 @@ async function main() {
   try {
     if (cli.flags.pdf) {
       // PDF generation mode
-      if (hasStdin) {
-        console.error('PDF generation from stdin is not supported. Please provide a file.');
+      if (!inputFile) {
+        console.error('PDF generation requires a file path. Please provide a file.');
         process.exit(1);
       }
       const outputFile = cli.input[1] || inputFile.replace(/\.md$/i, '.pdf');
@@ -142,8 +142,8 @@ async function main() {
       console.log(`✅ PDF generated successfully: ${path.resolve(generatedPath)}`);
     } else if (cli.flags.odt) {
       // ODT generation mode
-      if (hasStdin) {
-        console.error('ODT generation from stdin is not supported. Please provide a file.');
+      if (!inputFile) {
+        console.error('ODT generation requires a file path. Please provide a file.');
         process.exit(1);
       }
       const outputFile = cli.input[1] || inputFile.replace(/\.md$/i, '.odt');
