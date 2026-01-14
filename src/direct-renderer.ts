@@ -180,7 +180,9 @@ export async function renderMarkdownDirect(filePathOrContent: string, baseDir?: 
           try {
             process.stdout.write('\n');
             
-            // Convert mermaid to SVG using profile settings (chafa supports SVG)
+            // Convert mermaid to PNG for terminal rendering
+            // Note: SVG would be preferred but mermaid 11.x uses foreignObject with HTML
+            // for text labels, which chafa cannot render. PNG bakes text into the raster.
             const mermaidOptions = {
               width: profile.mermaid.width,
               height: profile.mermaid.height,
@@ -189,7 +191,7 @@ export async function renderMarkdownDirect(filePathOrContent: string, baseDir?: 
               fontFamily: profile.mermaid.fontFamily,
               fontSize: profile.mermaid.fontSize,
               dpi: profile.mermaid.dpi,  // Pass DPI setting
-              outputFormat: 'svg' as const  // Always use SVG for terminal (chafa only)
+              outputFormat: 'png' as const  // PNG required - mermaid SVG uses foreignObject HTML
             };
             const imagePath = await renderMermaidDiagram(mermaidContent, mermaidOptions);
             
