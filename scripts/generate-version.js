@@ -9,7 +9,7 @@
  */
 
 import { execSync } from 'child_process';
-import { writeFileSync, readFileSync } from 'fs';
+import { writeFileSync, readFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
@@ -27,7 +27,22 @@ function getPackageVersion() {
   }
 }
 
+function hasGitRepo() {
+  // Check if .git exists in project root (not a parent directory)
+  return existsSync(join(projectRoot, '.git'));
+}
+
 function getGitInfo() {
+  // If no .git in project root, use package.json (tarball build)
+  if (!hasGitRepo()) {
+    return {
+      hash: 'release',
+      tag: getPackageVersion(),
+      branch: 'release',
+      dirty: false
+    };
+  }
+
   try {
     // Get current commit hash (short)
     const gitHash = execSync('git rev-parse --short HEAD', {
@@ -106,7 +121,8 @@ export const VERSION_INFO = {
 export function getVersionString(): string {
   const parts = [VERSION_INFO.tag];
 
-  if (VERSION_INFO.hash !== 'unknown') {
+  // Only show hash for dev builds, not release builds
+  if (VERSION_INFO.hash !== 'unknown' && VERSION_INFO.hash !== 'release') {
     parts.push(\`(\${VERSION_INFO.hash}\${VERSION_INFO.dirty ? '-dirty' : ''})\`);
   }
 
