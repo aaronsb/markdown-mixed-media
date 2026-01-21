@@ -1,11 +1,15 @@
 #!/usr/bin/env node
 /**
- * Generate version information from git
- * Creates src/version.ts with git hash and tag info
+ * Generate version information from git or package.json
+ * Creates src/version.ts with version info
+ *
+ * Priority:
+ * 1. Git tags (for development builds)
+ * 2. package.json version (for tarball builds without git)
  */
 
 import { execSync } from 'child_process';
-import { writeFileSync } from 'fs';
+import { writeFileSync, readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
@@ -14,12 +18,22 @@ const __dirname = dirname(__filename);
 const projectRoot = join(__dirname, '..');
 const outputPath = join(projectRoot, 'src', 'version.ts');
 
+function getPackageVersion() {
+  try {
+    const packageJson = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf-8'));
+    return packageJson.version ? `v${packageJson.version}` : 'unknown';
+  } catch (e) {
+    return 'unknown';
+  }
+}
+
 function getGitInfo() {
   try {
     // Get current commit hash (short)
     const gitHash = execSync('git rev-parse --short HEAD', {
       cwd: projectRoot,
-      encoding: 'utf-8'
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe']
     }).trim();
 
     // Get current tag (if any)
@@ -27,30 +41,35 @@ function getGitInfo() {
     try {
       gitTag = execSync('git describe --tags --exact-match 2>/dev/null', {
         cwd: projectRoot,
-        encoding: 'utf-8'
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe']
       }).trim();
     } catch (e) {
       // No exact tag match, try to get the latest tag
       try {
         gitTag = execSync('git describe --tags --abbrev=0 2>/dev/null', {
           cwd: projectRoot,
-          encoding: 'utf-8'
+          encoding: 'utf-8',
+          stdio: ['pipe', 'pipe', 'pipe']
         }).trim();
       } catch (e2) {
-        gitTag = 'unknown';
+        // Fall back to package.json version
+        gitTag = getPackageVersion();
       }
     }
 
     // Get branch name
     const gitBranch = execSync('git rev-parse --abbrev-ref HEAD', {
       cwd: projectRoot,
-      encoding: 'utf-8'
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe']
     }).trim();
 
     // Check if working directory is dirty
     const gitDirty = execSync('git status --porcelain', {
       cwd: projectRoot,
-      encoding: 'utf-8'
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe']
     }).trim() !== '';
 
     return {
@@ -60,11 +79,11 @@ function getGitInfo() {
       dirty: gitDirty
     };
   } catch (error) {
-    console.warn('Warning: Could not get git information:', error.message);
+    // Git not available (e.g., tarball build) - use package.json
     return {
-      hash: 'unknown',
-      tag: 'unknown',
-      branch: 'unknown',
+      hash: 'release',
+      tag: getPackageVersion(),
+      branch: 'release',
       dirty: false
     };
   }
