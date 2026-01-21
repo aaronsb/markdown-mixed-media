@@ -57,52 +57,53 @@ async function checkPandocInstalled(): Promise<void> {
 
 async function processMermaidAndSvgBlocks(content: string, _markdownDir: string, profile: RenderProfile): Promise<string> {
   // First, extract and process all embedded SVG blocks to prevent issues
-  let processedContent = await processEmbeddedSvgs(content);
-  
+  let processedContent = await processEmbeddedSvgs(content, profile);
+
   // Then process Mermaid blocks
   return processMermaidBlocks(processedContent, _markdownDir, profile);
 }
 
 // Process embedded SVGs before markdown parsing
-async function processEmbeddedSvgs(content: string): Promise<string> {
+async function processEmbeddedSvgs(content: string, profile: RenderProfile): Promise<string> {
   let result = content;
-  
+
   // Regular expression to match SVG blocks (with or without wrapping divs)
   const svgBlockRegex = /(<div[^>]*>\s*)?<svg[\s\S]*?<\/svg>(\s*<\/div>)?/gi;
-  
+
   let match;
   const replacements: Array<{ original: string; replacement: string }> = [];
-  
+  const widthPercent = Math.round(profile.images.widthPercent * 100);
+
   while ((match = svgBlockRegex.exec(content)) !== null) {
     const svgBlock = match[0];
-    
+
     // Extract the SVG element
     const extractedSvg = extractSvgFromHtml(svgBlock);
-    
+
     if (extractedSvg) {
       // For ODT, save SVG to temp file and reference it
       const tempDir = path.join(os.tmpdir(), 'mmm-odt-images');
       await fs.mkdir(tempDir, { recursive: true });
-      
+
       const svgName = `svg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}.svg`;
       const tempSvgPath = path.join(tempDir, svgName);
       await fs.writeFile(tempSvgPath, extractedSvg, 'utf-8');
-      
+
       // Add as markdown image with width attribute for Pandoc
-      const imgMarkdown = `![SVG Diagram](${tempSvgPath}){width=90%}`;
-      
+      const imgMarkdown = `![SVG Diagram](${tempSvgPath}){width=${widthPercent}%}`;
+
       replacements.push({
         original: svgBlock,
         replacement: imgMarkdown
       });
     }
   }
-  
+
   // Apply all replacements
   for (const { original, replacement } of replacements) {
     result = result.replace(original, replacement);
   }
-  
+
   return result;
 }
 
@@ -148,7 +149,8 @@ async function processMermaidBlocks(content: string, _markdownDir: string, profi
           await fs.copyFile(svgPath, tempImagePath);
           
           // Add as markdown image with width attribute for Pandoc
-          processedContent += `![Mermaid Diagram](${tempImagePath}){width=90%}\n\n`;
+          const widthPercent = Math.round(profile.images.widthPercent * 100);
+          processedContent += `![Mermaid Diagram](${tempImagePath}){width=${widthPercent}%}\n\n`;
           
           // Clean up original temp file
           await cleanupMermaidFile(svgPath);

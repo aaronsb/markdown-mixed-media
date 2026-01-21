@@ -71,7 +71,7 @@ export async function renderMarkdownToPdf(
 
 async function processMermaidAndSvgBlocks(content: string, _markdownDir: string, profile: RenderProfile): Promise<string> {
   // First, extract and process all embedded SVG blocks to prevent page break issues
-  let processedContent = await processEmbeddedSvgs(content);
+  let processedContent = await processEmbeddedSvgs(content, profile);
 
   // Process LaTeX math expressions before markdown parsing
   processedContent = processLatexMath(processedContent);
@@ -108,42 +108,43 @@ function processLatexMath(content: string): string {
 }
 
 // Process embedded SVGs before markdown parsing to prevent page break issues
-async function processEmbeddedSvgs(content: string): Promise<string> {
+async function processEmbeddedSvgs(content: string, profile: RenderProfile): Promise<string> {
   let result = content;
-  
+
   // Regular expression to match SVG blocks (with or without wrapping divs)
   // This captures the entire SVG block including any wrapping elements
   const svgBlockRegex = /(<div[^>]*>\s*)?<svg[\s\S]*?<\/svg>(\s*<\/div>)?/gi;
-  
+
   let match;
   const replacements: Array<{ original: string; replacement: string }> = [];
-  
+  const widthPct = (profile.images.widthPercent * 100).toFixed(0);
+
   while ((match = svgBlockRegex.exec(content)) !== null) {
     const svgBlock = match[0];
-    
+
     // Extract the SVG element
     const extractedSvg = extractSvgFromHtml(svgBlock);
-    
+
     if (extractedSvg) {
       // Convert SVG to base64 data URI
       const base64 = Buffer.from(extractedSvg).toString('base64');
       const dataUri = `data:image/svg+xml;base64,${base64}`;
-      
+
       // Create img tag replacement with page-break-inside: avoid to prevent splitting
-      const imgTag = `<img src="${dataUri}" alt="SVG Diagram" style="max-width: 100%; height: auto; page-break-inside: avoid;">`;
-      
+      const imgTag = `<img src="${dataUri}" alt="SVG Diagram" style="width: ${widthPct}%; max-width: 100%; height: auto; display: block; margin: 0 auto; page-break-inside: avoid;">`;
+
       replacements.push({
         original: svgBlock,
         replacement: imgTag
       });
     }
   }
-  
+
   // Apply all replacements
   for (const { original, replacement } of replacements) {
     result = result.replace(original, replacement);
   }
-  
+
   return result;
 }
 
@@ -184,7 +185,8 @@ async function processMermaidBlocks(content: string, _markdownDir: string, profi
           const dataUri = `data:image/svg+xml;base64,${base64}`;
           
           // Add as HTML img tag directly to avoid markdown processing issues
-          processedContent += `<img src="${dataUri}" alt="Mermaid Diagram" style="max-width: 100%; height: auto;">\n\n`;
+          const widthPct = (profile.images.widthPercent * 100).toFixed(0);
+          processedContent += `<img src="${dataUri}" alt="Mermaid Diagram" style="width: ${widthPct}%; max-width: 100%; height: auto; display: block; margin: 0 auto;">\n\n`;
           
           // Clean up temp file
           await cleanupMermaidFile(svgPath);
@@ -463,11 +465,11 @@ function generateCss(profile: RenderProfile): string {
     }
     
     img {
-      max-width: ${profile.images.maxWidth || '100%'};
+      width: ${(profile.images.widthPercent * 100).toFixed(0)}%;
+      max-width: 100%;
       height: auto;
       display: block;
-      margin: 1em ${profile.images.alignment === 'center' ? 'auto' : '0'};
-      ${profile.images.alignment === 'right' ? 'margin-left: auto;' : ''}
+      margin: 1em auto;
       page-break-inside: avoid;
     }
     
