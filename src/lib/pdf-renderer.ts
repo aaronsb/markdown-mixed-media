@@ -3,6 +3,7 @@ import { markedHighlight } from 'marked-highlight';
 import markedFootnote from 'marked-footnote';
 import { markedEmoji } from 'marked-emoji';
 import * as nodeEmoji from 'node-emoji';
+import katex from 'katex';
 import hljs from 'highlight.js';
 import puppeteer from 'puppeteer';
 import { renderMermaidDiagram, cleanupMermaidFile } from './mermaid.js';
@@ -10,6 +11,12 @@ import { extractSvgFromHtml } from './svg.js';
 import { loadProfile, RenderProfile } from './config.js';
 import path from 'path';
 import fs from 'fs/promises';
+import { readFileSync } from 'fs';
+import { createRequire } from 'module';
+
+// Load highlight.js theme CSS from the installed package for offline use
+const _require = createRequire(import.meta.url);
+const hljsCss = readFileSync(_require.resolve('highlight.js/styles/github.min.css'), 'utf-8');
 
 // Build emoji shortcode map from node-emoji (GitHub/Slack-compatible shortcodes)
 const emojiMap: { [key: string]: string } = {};
@@ -19,6 +26,14 @@ for (const { name, emoji } of nodeEmoji.search('')) {
 emojiMap['+1'] = '👍';
 emojiMap['-1'] = '👎';
 
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 // Custom inline extensions for subscript, superscript, and highlight
 const subscript = {
   name: 'subscript',
@@ -27,8 +42,9 @@ const subscript = {
   tokenizer(src: string) {
     const match = src.match(/^~([^~\s]+)~/);
     if (match) return { type: 'subscript', raw: match[0], text: match[1] };
+    return undefined;
   },
-  renderer(token: { text: string }) { return `<sub>${token.text}</sub>`; }
+  renderer(token: { text: string }) { return `<sub>${escapeHtml(token.text)}</sub>`; }
 };
 
 const superscript = {
@@ -38,8 +54,9 @@ const superscript = {
   tokenizer(src: string) {
     const match = src.match(/^\^([^\^\s]+)\^/);
     if (match) return { type: 'superscript', raw: match[0], text: match[1] };
+    return undefined;
   },
-  renderer(token: { text: string }) { return `<sup>${token.text}</sup>`; }
+  renderer(token: { text: string }) { return `<sup>${escapeHtml(token.text)}</sup>`; }
 };
 
 const highlightExt = {
@@ -49,8 +66,9 @@ const highlightExt = {
   tokenizer(src: string) {
     const match = src.match(/^==([^=]+)==/);
     if (match) return { type: 'highlight', raw: match[0], text: match[1] };
+    return undefined;
   },
-  renderer(token: { text: string }) { return `<mark>${token.text}</mark>`; }
+  renderer(token: { text: string }) { return `<mark>${escapeHtml(token.text)}</mark>`; }
 };
 
 // Create a new instance of marked specifically for PDF generation
@@ -73,7 +91,7 @@ marked.use(markedFootnote());
 marked.use(markedEmoji({ emojis: emojiMap, renderer: (token) => token.emoji }));
 
 // Subscript (~text~), superscript (^text^), highlight (==text==)
-marked.use({ extensions: [subscript, superscript, highlightExt] });
+marked.use({ extensions: [subscript, superscript, highlightExt] } as any);
 
 // Set marked options to ensure tables and other features work
 marked.setOptions({
@@ -100,10 +118,14 @@ export async function renderMarkdownToPdf(
     const markdownDir = path.dirname(path.resolve(filePath));
 
     // Process markdown content with mermaid diagrams and embedded SVGs
-    const processedContent = await processMermaidAndSvgBlocks(content, markdownDir, profile);
+    // Math rendering returns placeholders to protect KaTeX output from marked
+    const { content: processedContent, mathBlocks } = await processMermaidAndSvgBlocks(content, markdownDir, profile);
 
     // Convert markdown to HTML
-    const htmlContent = await marked.parse(processedContent);
+    let htmlContent = await marked.parse(processedContent);
+
+    // Restore KaTeX-rendered math blocks after marked processing
+    htmlContent = restoreMathBlocks(htmlContent, mathBlocks);
 
     // Process images to embed them as base64
     const htmlWithImages = await embedImages(htmlContent, markdownDir);
@@ -123,20 +145,49 @@ export async function renderMarkdownToPdf(
   }
 }
 
-async function processMermaidAndSvgBlocks(content: string, markdownDir: string, profile: RenderProfile): Promise<string> {
-  // First, extract and process all embedded SVG blocks to prevent page break issues
-  let processedContent = await processEmbeddedSvgs(content, profile);
-
-  // Process LaTeX math expressions before markdown parsing
-  processedContent = processLatexMath(processedContent);
-
-  // Then process Mermaid blocks
-  return processMermaidBlocks(processedContent, markdownDir, profile);
+interface ProcessedContent {
+  content: string;
+  mathBlocks: string[];
 }
 
-// Process LaTeX math expressions and convert to KaTeX-compatible HTML
-function processLatexMath(content: string): string {
+async function processMermaidAndSvgBlocks(content: string, markdownDir: string, profile: RenderProfile): Promise<ProcessedContent> {
+  // First, extract and process all embedded SVG blocks to prevent page break issues
+  let processedContent = processEmbeddedSvgs(content, profile);
+
+  // Process LaTeX math expressions before markdown parsing (server-side KaTeX).
+  // Returns placeholders instead of rendered HTML to protect from marked mangling.
+  const mathBlocks: string[] = [];
+  processedContent = processLatexMath(processedContent, mathBlocks);
+
+  // Then process Mermaid blocks
+  processedContent = await processMermaidBlocks(processedContent, markdownDir, profile);
+
+  return { content: processedContent, mathBlocks };
+}
+
+// Process LaTeX math expressions server-side using KaTeX with MathML output.
+// MathML is rendered natively by Chromium — no CSS, fonts, or client-side JS needed.
+// Rendered HTML is stored in mathBlocks and replaced with placeholders that survive
+// marked parsing. Call restoreMathBlocks() after marked.parse() to swap them back.
+function processLatexMath(content: string, mathBlocks: string[]): string {
   let result = content;
+
+  // Protect code blocks from math processing
+  const codeBlocks: string[] = [];
+
+  // Protect fenced code blocks (```...```)
+  result = result.replace(/```[\s\S]*?```/g, (match) => {
+    const idx = codeBlocks.length;
+    codeBlocks.push(match);
+    return `\x00CODEBLOCK${idx}\x00`;
+  });
+
+  // Protect inline code (`...`)
+  result = result.replace(/`[^`]+`/g, (match) => {
+    const idx = codeBlocks.length;
+    codeBlocks.push(match);
+    return `\x00CODEBLOCK${idx}\x00`;
+  });
 
   // Protect escaped dollar signs (\$) from being treated as math delimiters
   // These are markdown literal dollar signs (e.g., currency: \$17.4M)
@@ -145,30 +196,59 @@ function processLatexMath(content: string): string {
 
   // Process display math ($$...$$) - must come first to avoid conflicts with inline
   result = result.replace(/\$\$([\s\S]*?)\$\$/g, (_match, math) => {
-    const escapedMath = math.trim()
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-    return `<div class="math-display" data-math="${encodeURIComponent(escapedMath)}"></div>`;
+    let rendered: string;
+    try {
+      rendered = katex.renderToString(math.trim(), {
+        displayMode: true,
+        output: 'mathml',
+        throwOnError: false
+      });
+    } catch {
+      rendered = `<code>${escapeHtml(math.trim())}</code>`;
+    }
+    const idx = mathBlocks.length;
+    mathBlocks.push(rendered);
+    // Use an HTML div placeholder that marked passes through unchanged
+    return `<div data-math-placeholder="${idx}"></div>`;
   });
 
   // Process inline math ($...$) - be careful not to match currency or other uses
   result = result.replace(/(?<!\$)\$(?!\$)([^\$\n]+?)\$(?!\$)/g, (_match, math) => {
-    const escapedMath = math.trim()
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-    return `<span class="math-inline" data-math="${encodeURIComponent(escapedMath)}"></span>`;
+    let rendered: string;
+    try {
+      rendered = katex.renderToString(math.trim(), {
+        displayMode: false,
+        output: 'mathml',
+        throwOnError: false
+      });
+    } catch {
+      rendered = `<code>${escapeHtml(math.trim())}</code>`;
+    }
+    const idx = mathBlocks.length;
+    mathBlocks.push(rendered);
+    // Use an HTML span placeholder that marked passes through unchanged
+    return `<span data-math-placeholder="${idx}"></span>`;
   });
 
   // Restore escaped dollar signs as literal $
   result = result.replace(new RegExp(ESCAPED_DOLLAR_PLACEHOLDER, 'g'), '$');
 
+  // Restore code blocks
+  result = result.replace(/\x00CODEBLOCK(\d+)\x00/g, (_match, idx) => codeBlocks[parseInt(idx)]);
+
   return result;
 }
 
+// Replace math placeholders with the actual KaTeX-rendered HTML after marked processing
+function restoreMathBlocks(html: string, mathBlocks: string[]): string {
+  if (mathBlocks.length === 0) return html;
+  return html.replace(/<(div|span) data-math-placeholder="(\d+)"><\/(div|span)>/g,
+    (_match, _tag, idx) => mathBlocks[parseInt(idx)]
+  );
+}
+
 // Process embedded SVGs before markdown parsing to prevent page break issues
-async function processEmbeddedSvgs(content: string, profile: RenderProfile): Promise<string> {
+function processEmbeddedSvgs(content: string, profile: RenderProfile): string {
   let result = content;
 
   const svgBlockRegex = /(<div[^>]*>\s*)?<svg[\s\S]*?<\/svg>(\s*<\/div>)?/gi;
@@ -338,10 +418,8 @@ function generateHtmlDocument(content: string, profile: RenderProfile, title: st
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${title}</title>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
-  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <title>${escapeHtml(title)}</title>
+  <style>${hljsCss}</style>
   <style>
     ${css}
   </style>
@@ -350,25 +428,6 @@ function generateHtmlDocument(content: string, profile: RenderProfile, title: st
   <div class="content">
     ${content}
   </div>
-  <script>
-    // Render all math elements using KaTeX
-    document.querySelectorAll('.math-display').forEach(el => {
-      const math = decodeURIComponent(el.getAttribute('data-math') || '');
-      try {
-        katex.render(math, el, { displayMode: true, throwOnError: false });
-      } catch (e) {
-        el.textContent = math;
-      }
-    });
-    document.querySelectorAll('.math-inline').forEach(el => {
-      const math = decodeURIComponent(el.getAttribute('data-math') || '');
-      try {
-        katex.render(math, el, { displayMode: false, throwOnError: false });
-      } catch (e) {
-        el.textContent = math;
-      }
-    });
-  </script>
 </body>
 </html>`;
 }
@@ -463,7 +522,7 @@ function generateCss(profile: RenderProfile): string {
       color: ${codeColors.text || '#24292e'};
     }
 
-    /* Syntax highlighting colors */
+    /* Syntax highlighting color overrides */
     .hljs-keyword { color: ${codeColors.keyword || '#d73a49'}; }
     .hljs-string { color: ${codeColors.string || '#032f62'}; }
     .hljs-comment { color: ${codeColors.comment || '#6a737d'}; }
@@ -522,18 +581,6 @@ function generateCss(profile: RenderProfile): string {
       border: none;
       border-top: 2px solid #e1e4e8;
       margin: 2em 0;
-    }
-
-    /* Math styling */
-    .math-display {
-      display: block;
-      text-align: center;
-      margin: 1em 0;
-      overflow-x: auto;
-    }
-
-    .math-inline {
-      display: inline;
     }
 
     /* Footnotes */
@@ -612,7 +659,7 @@ function generateCss(profile: RenderProfile): string {
 async function generatePdf(html: string, outputPath: string, profile: RenderProfile): Promise<void> {
   const browser = await puppeteer.launch({
     headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-web-security', '--allow-file-access-from-files']
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
   });
 
   try {
@@ -625,12 +672,9 @@ async function generatePdf(html: string, outputPath: string, profile: RenderProf
       deviceScaleFactor: 2
     });
 
-    // Disable CSP to allow data URIs
-    await page.setBypassCSP(true);
-
-    // Set HTML content with proper base tag for relative paths
+    // Set HTML content — fully self-contained, no external resources
     await page.setContent(html, {
-      waitUntil: ['networkidle0', 'domcontentloaded']
+      waitUntil: 'domcontentloaded'
     });
 
     // Wait for all images including those with data URIs
@@ -644,29 +688,6 @@ async function generatePdf(html: string, outputPath: string, profile: RenderProf
           }))
       );
     });
-
-    // Wait for KaTeX to finish rendering math elements
-    await page.evaluate(() => {
-      const mathElements = document.querySelectorAll('.math-display, .math-inline');
-      return new Promise<void>((resolve) => {
-        if (mathElements.length === 0) {
-          resolve();
-          return;
-        }
-        const checkRendered = () => {
-          const rendered = document.querySelectorAll('.katex');
-          if (rendered.length > 0) {
-            resolve();
-          } else {
-            setTimeout(checkRendered, 100);
-          }
-        };
-        checkRendered();
-      });
-    });
-
-    // Additional wait to ensure rendering is complete (fonts, etc.)
-    await new Promise(resolve => setTimeout(resolve, 500));
 
     // Generate PDF
     await page.pdf({
