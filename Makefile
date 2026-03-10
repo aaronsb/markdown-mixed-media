@@ -9,7 +9,7 @@ build:
 
 # Install dependencies
 deps:
-	npm install --legacy-peer-deps
+	npm install
 
 # Build and install to system
 install: build

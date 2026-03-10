@@ -20,7 +20,7 @@ sha256sums=('6cff62f64820f67c0ca00e8c49c39018a08d3a06e06b245e9ad9fc3a32f86dca')
 build() {
     cd "$srcdir/markdown-mixed-media-$pkgver"
 
-    # Install dependencies
+    # Install dependencies (.npmrc sets legacy-peer-deps for marked-emoji compat)
     npm install --production=false
 
     # Build the project
