@@ -251,13 +251,13 @@ const odtProfile: RenderProfile = {
     mermaid: 'Liberation Sans, Arial, sans-serif'
   },
   fontSizes: {
-    body: '12pt',
+    body: '11pt',  // Default 11pt for better readability
     h1: '20pt',
     h2: '18pt',
     h3: '16pt',
     h4: '14pt',
     h5: '12pt',
-    h6: '12pt',
+    h6: '11pt',
     code: '10pt'
   },
   colors: {
@@ -415,6 +415,39 @@ async function createDefaultConfig(configDir: string, configFile: string): Promi
           "enabled": true,
           "showPageNumbers": true
         }
+      }
+    },
+    "odt": {
+      "name": "odt",
+      "output": "odt",
+      "theme": "light",
+      "fonts": {
+        "body": "Liberation Sans, Arial, sans-serif",
+        "heading": "Liberation Sans, Arial, sans-serif",
+        "code": "Liberation Mono, Courier New, monospace"
+      },
+      "fontSizes": {
+        "body": "11pt",
+        "h1": "20pt",
+        "h2": "18pt",
+        "h3": "16pt",
+        "h4": "14pt",
+        "h5": "12pt",
+        "h6": "11pt",
+        "code": "10pt"
+      },
+      "images": {
+        "widthPercent": 0.9,
+        "alignment": "center",
+        "dpi": 150
+      },
+      "mermaid": {
+        "width": 2400,
+        "height": 1600,
+        "theme": "default",
+        "backgroundColor": "#ffffff",
+        "scale": 1,
+        "dpi": 300
       }
     }
   }

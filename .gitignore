@@ -10,8 +10,19 @@ build/
 mmv
 mmv-*
 
+# AUR package build files
+.SRCINFO
+.SRCINFO-git
+mmm-*.tar.gz
+mmm-*.tar.xz
+/src/
+/pkg/
+
 # TypeScript
 *.tsbuildinfo
+
+# Auto-generated files
+src/version.ts
 
 # Testing
 coverage/
@@ -48,4 +59,4 @@ temp/
 # Package manager
 package-lock.json
 yarn.lock
-pnpm-lock.yaml
+pnpm-lock.yaml*.pkg.tar.zst

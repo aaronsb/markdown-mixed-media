@@ -3,7 +3,9 @@ import { marked } from 'marked';
 import TerminalRenderer from 'marked-terminal';
 import { renderImage } from './lib/image.js';
 import { renderMermaidDiagram, cleanupMermaidFile } from './lib/mermaid.js';
+import { renderEmbeddedSvg, extractSvgFromHtml } from './lib/svg.js';
 import { loadProfile } from './lib/config.js';
+import { highlightCode, detectLanguage } from './lib/terminal-syntax-highlighter.js';
 import path from 'path';
 import fs from 'fs/promises';
 import Table from 'cli-table3';
@@ -40,6 +42,19 @@ async function createRenderer(profile: any) {
 
   // Override the table method to calculate column widths
   const renderer = Object.create(baseRenderer);
+  
+  // Override the code method to use our syntax highlighter
+  renderer.code = function(code: string, lang?: string) {
+    // Apply our custom syntax highlighting
+    const highlighted = lang ? highlightCode(code, lang) : highlightCode(code, detectLanguage(code));
+    
+    // Add indentation (2 spaces per line)
+    const lines = highlighted.split('\n');
+    const indented = lines.map(line => '  ' + line).join('\n');
+    
+    // Add spacing before and after
+    return '\n' + indented + '\n';
+  };
   
   // Define the special markers used by marked-terminal
   const TABLE_CELL_SPLIT = '^*||*^';
@@ -110,20 +125,31 @@ async function createRenderer(profile: any) {
   return renderer;
 }
 
-export async function renderMarkdownDirect(filePath: string): Promise<void> {
+export async function renderMarkdownDirect(filePathOrContent: string, baseDir?: string): Promise<void> {
   try {
     // Load profile
     const profile = await loadProfile('terminal');
-    
+
     // Create renderer with profile configuration
     const renderer = await createRenderer(profile);
-    
+
     // @ts-ignore - type mismatch with marked versions
     marked.setOptions({ renderer });
-    
-    // Read the markdown file
-    const content = await fs.readFile(filePath, 'utf-8');
-    const markdownDir = path.dirname(path.resolve(filePath));
+
+    // Determine if input is a file path or content
+    let content: string;
+    let markdownDir: string;
+
+    if (baseDir) {
+      // Content was passed directly with a base directory
+      content = filePathOrContent;
+      markdownDir = baseDir;
+    } else {
+      // File path was passed
+      const filePath = filePathOrContent;
+      content = await fs.readFile(filePath, 'utf-8');
+      markdownDir = path.dirname(path.resolve(filePath));
+    }
     
     // Split content by lines to process images and mermaid blocks
     const lines = content.split('\n');
@@ -154,7 +180,9 @@ export async function renderMarkdownDirect(filePath: string): Promise<void> {
           try {
             process.stdout.write('\n');
             
-            // Convert mermaid to SVG using profile settings (chafa supports SVG)
+            // Convert mermaid to PNG for terminal rendering
+            // Note: SVG would be preferred but mermaid 11.x uses foreignObject with HTML
+            // for text labels, which chafa cannot render. PNG bakes text into the raster.
             const mermaidOptions = {
               width: profile.mermaid.width,
               height: profile.mermaid.height,
@@ -163,7 +191,7 @@ export async function renderMarkdownDirect(filePath: string): Promise<void> {
               fontFamily: profile.mermaid.fontFamily,
               fontSize: profile.mermaid.fontSize,
               dpi: profile.mermaid.dpi,  // Pass DPI setting
-              outputFormat: 'svg' as const  // Always use SVG for terminal (chafa only)
+              outputFormat: 'png' as const  // PNG required - mermaid SVG uses foreignObject HTML
             };
             const imagePath = await renderMermaidDiagram(mermaidContent, mermaidOptions);
             
@@ -214,6 +242,72 @@ export async function renderMarkdownDirect(filePath: string): Promise<void> {
       if (inMermaidBlock) {
         mermaidContent += line + '\n';
         continue;
+      }
+      
+      // Check if we're starting an SVG block (either <svg> or <div> containing SVG)
+      if (!inCodeBlock && (line.includes('<svg') || line.includes('<div'))) {
+        // Look ahead to see if this contains SVG
+        let svgContent = '';
+        let foundSvg = false;
+        let foundEndDiv = false;
+        
+        // Collect lines until we find the end of the SVG block
+        for (let j = i; j < lines.length && j < i + 100; j++) {
+          svgContent += lines[j] + '\n';
+          
+          if (lines[j].includes('<svg')) {
+            foundSvg = true;
+          }
+          
+          if (foundSvg && lines[j].includes('</svg>')) {
+            // Check if we need to find a closing div
+            if (svgContent.includes('<div')) {
+              // Look for closing div
+              for (let k = j; k < lines.length && k < j + 5; k++) {
+                if (k > j) {
+                  svgContent += lines[k] + '\n';
+                }
+                if (lines[k].includes('</div>')) {
+                  foundEndDiv = true;
+                  i = k; // Skip ahead to after the closing div
+                  break;
+                }
+              }
+            } else {
+              i = j; // Skip ahead to after the SVG
+              foundEndDiv = true; // No div wrapper needed
+            }
+            break;
+          }
+        }
+        
+        if (foundSvg && foundEndDiv) {
+          // Extract the SVG element
+          const extractedSvg = extractSvgFromHtml(svgContent);
+          
+          if (extractedSvg) {
+            // First, render everything we've accumulated so far
+            if (processedContent) {
+              const rendered = marked(processedContent) as string;
+              process.stdout.write(rendered);
+              processedContent = '';
+            }
+            
+            // Render the SVG
+            process.stdout.write('\n');
+            
+            const svgOutput = await renderEmbeddedSvg(extractedSvg, {
+              width: profile.images.widthPercent,
+              alignment: profile.images.alignment
+            });
+            
+            // renderEmbeddedSvg now returns either the rendered image or a warning message
+            process.stdout.write(svgOutput);
+            process.stdout.write('\n');
+            
+            continue;
+          }
+        }
       }
       
       // Check for image syntax ![alt](src)

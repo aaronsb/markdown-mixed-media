@@ -1,0 +1,2 @@
+#!/usr/bin/env node
+import '/home/aaron/Projects/app/markdown-mixed-media/dist/index-direct.js';

@@ -35,8 +35,9 @@ export async function renderImage(
     
     return result;
   } catch (error) {
-    console.error('Failed to render image:', error);
-    return `[Image: ${imagePath}]`;
+    // Return a formatted warning without logging to console
+    const filename = path.basename(imagePath);
+    return `\x1b[33m⚠ Warning: Failed to render image ${filename}\x1b[0m`;
   }
 }
 
@@ -71,8 +72,16 @@ async function renderChafaSixel(
     const { stdout } = await execAsync(cmd, { maxBuffer: 1024 * 1024 * 50 });
     return stdout;
   } catch (error) {
-    console.error(`Chafa rendering error: ${error instanceof Error ? error.message : String(error)}`);
-    return `[Image: ${path.basename(imagePath)} - Chafa rendering failed]`;
+    // Don't log to console.error, just return a clean warning
+    const filename = path.basename(imagePath);
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    
+    // Check if it's specifically an unknown format error
+    if (errorMsg.includes('Unknown file format')) {
+      return `\x1b[33m⚠ Warning: Invalid or unsupported image format - ${filename}\x1b[0m`;
+    }
+    
+    return `\x1b[33m⚠ Warning: Image rendering failed - ${filename}\x1b[0m`;
   }
 }
 
