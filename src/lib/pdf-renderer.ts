@@ -1,5 +1,9 @@
 import { Marked } from 'marked';
 import { markedHighlight } from 'marked-highlight';
+import markedFootnote from 'marked-footnote';
+import { markedEmoji } from 'marked-emoji';
+import * as nodeEmoji from 'node-emoji';
+import katex from 'katex';
 import hljs from 'highlight.js';
 import puppeteer from 'puppeteer';
 import { renderMermaidDiagram, cleanupMermaidFile } from './mermaid.js';
@@ -7,6 +11,65 @@ import { extractSvgFromHtml } from './svg.js';
 import { loadProfile, RenderProfile } from './config.js';
 import path from 'path';
 import fs from 'fs/promises';
+import { readFileSync } from 'fs';
+import { createRequire } from 'module';
+
+// Load highlight.js theme CSS from the installed package for offline use
+const _require = createRequire(import.meta.url);
+const hljsCss = readFileSync(_require.resolve('highlight.js/styles/github.min.css'), 'utf-8');
+
+// Build emoji shortcode map from node-emoji (GitHub/Slack-compatible shortcodes)
+const emojiMap: { [key: string]: string } = {};
+for (const { name, emoji } of nodeEmoji.search('')) {
+  emojiMap[name] = emoji;
+}
+emojiMap['+1'] = '👍';
+emojiMap['-1'] = '👎';
+
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// Custom inline extensions for subscript, superscript, and highlight
+const subscript = {
+  name: 'subscript',
+  level: 'inline' as const,
+  start(src: string) { return src.match(/~(?!~)/)?.index; },
+  tokenizer(src: string) {
+    const match = src.match(/^~([^~\s]+)~/);
+    if (match) return { type: 'subscript', raw: match[0], text: match[1] };
+    return undefined;
+  },
+  renderer(token: { text: string }) { return `<sub>${escapeHtml(token.text)}</sub>`; }
+};
+
+const superscript = {
+  name: 'superscript',
+  level: 'inline' as const,
+  start(src: string) { return src.match(/\^(?!\^)/)?.index; },
+  tokenizer(src: string) {
+    const match = src.match(/^\^([^\^\s]+)\^/);
+    if (match) return { type: 'superscript', raw: match[0], text: match[1] };
+    return undefined;
+  },
+  renderer(token: { text: string }) { return `<sup>${escapeHtml(token.text)}</sup>`; }
+};
+
+const highlightExt = {
+  name: 'highlight',
+  level: 'inline' as const,
+  start(src: string) { return src.match(/==/)?.index; },
+  tokenizer(src: string) {
+    const match = src.match(/^==([^=]+)==/);
+    if (match) return { type: 'highlight', raw: match[0], text: match[1] };
+    return undefined;
+  },
+  renderer(token: { text: string }) { return `<mark>${escapeHtml(token.text)}</mark>`; }
+};
 
 // Create a new instance of marked specifically for PDF generation
 // This prevents interference from the terminal renderer configuration
@@ -21,6 +84,15 @@ marked.use(markedHighlight({
   }
 }));
 
+// Footnotes
+marked.use(markedFootnote());
+
+// Emoji shortcodes (:rocket: -> 🚀)
+marked.use(markedEmoji({ emojis: emojiMap, renderer: (token) => token.emoji }));
+
+// Subscript (~text~), superscript (^text^), highlight (==text==)
+marked.use({ extensions: [subscript, superscript, highlightExt] } as any);
+
 // Set marked options to ensure tables and other features work
 marked.setOptions({
   gfm: true,         // Enable GitHub Flavored Markdown (includes tables)
@@ -29,108 +101,168 @@ marked.setOptions({
 });
 
 export async function renderMarkdownToPdf(
-  filePath: string, 
+  filePath: string,
   outputPath?: string,
   profileName: string = 'pdf'
 ): Promise<string> {
   try {
     // Load the profile configuration
     const profile = await loadProfile(profileName);
-    
+
     if (profile.output !== 'pdf') {
       throw new Error(`Profile "${profileName}" is not configured for PDF output`);
     }
-    
+
     // Read the markdown file
     const content = await fs.readFile(filePath, 'utf-8');
     const markdownDir = path.dirname(path.resolve(filePath));
-    
+
     // Process markdown content with mermaid diagrams and embedded SVGs
-    const processedContent = await processMermaidAndSvgBlocks(content, markdownDir, profile);
-    
+    // Math rendering returns placeholders to protect KaTeX output from marked
+    const { content: processedContent, mathBlocks } = await processMermaidAndSvgBlocks(content, markdownDir, profile);
+
     // Convert markdown to HTML
-    const htmlContent = await marked.parse(processedContent);
-    
+    let htmlContent = await marked.parse(processedContent);
+
+    // Restore KaTeX-rendered math blocks after marked processing
+    htmlContent = restoreMathBlocks(htmlContent, mathBlocks);
+
     // Process images to embed them as base64
     const htmlWithImages = await embedImages(htmlContent, markdownDir);
-    
+
     // Generate complete HTML document with styling
     const fullHtml = generateHtmlDocument(htmlWithImages, profile, path.basename(filePath, '.md'));
-    
+
     // Determine output path
     const finalOutputPath = outputPath || filePath.replace(/\.md$/i, '.pdf');
-    
+
     // Generate PDF using Puppeteer
     await generatePdf(fullHtml, finalOutputPath, profile);
-    
+
     return finalOutputPath;
   } catch (error) {
     throw new Error(`Failed to generate PDF: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
-async function processMermaidAndSvgBlocks(content: string, _markdownDir: string, profile: RenderProfile): Promise<string> {
-  // First, extract and process all embedded SVG blocks to prevent page break issues
-  let processedContent = await processEmbeddedSvgs(content, profile);
-
-  // Process LaTeX math expressions before markdown parsing
-  processedContent = processLatexMath(processedContent);
-
-  // Then process Mermaid blocks
-  return processMermaidBlocks(processedContent, _markdownDir, profile);
+interface ProcessedContent {
+  content: string;
+  mathBlocks: string[];
 }
 
-// Process LaTeX math expressions and convert to KaTeX-compatible HTML
-function processLatexMath(content: string): string {
+async function processMermaidAndSvgBlocks(content: string, markdownDir: string, profile: RenderProfile): Promise<ProcessedContent> {
+  // First, extract and process all embedded SVG blocks to prevent page break issues
+  let processedContent = processEmbeddedSvgs(content, profile);
+
+  // Process LaTeX math expressions before markdown parsing (server-side KaTeX).
+  // Returns placeholders instead of rendered HTML to protect from marked mangling.
+  const mathBlocks: string[] = [];
+  processedContent = processLatexMath(processedContent, mathBlocks);
+
+  // Then process Mermaid blocks
+  processedContent = await processMermaidBlocks(processedContent, markdownDir, profile);
+
+  return { content: processedContent, mathBlocks };
+}
+
+// Process LaTeX math expressions server-side using KaTeX with MathML output.
+// MathML is rendered natively by Chromium — no CSS, fonts, or client-side JS needed.
+// Rendered HTML is stored in mathBlocks and replaced with placeholders that survive
+// marked parsing. Call restoreMathBlocks() after marked.parse() to swap them back.
+function processLatexMath(content: string, mathBlocks: string[]): string {
   let result = content;
 
+  // Protect code blocks from math processing
+  const codeBlocks: string[] = [];
+
+  // Protect fenced code blocks (```...```)
+  result = result.replace(/```[\s\S]*?```/g, (match) => {
+    const idx = codeBlocks.length;
+    codeBlocks.push(match);
+    return `\x00CODEBLOCK${idx}\x00`;
+  });
+
+  // Protect inline code (`...`)
+  result = result.replace(/`[^`]+`/g, (match) => {
+    const idx = codeBlocks.length;
+    codeBlocks.push(match);
+    return `\x00CODEBLOCK${idx}\x00`;
+  });
+
+  // Protect escaped dollar signs (\$) from being treated as math delimiters
+  // These are markdown literal dollar signs (e.g., currency: \$17.4M)
+  const ESCAPED_DOLLAR_PLACEHOLDER = '\x00ESCAPED_DOLLAR\x00';
+  result = result.replace(/\\\$/g, ESCAPED_DOLLAR_PLACEHOLDER);
+
   // Process display math ($$...$$) - must come first to avoid conflicts with inline
-  // Use a placeholder that won't be mangled by markdown
   result = result.replace(/\$\$([\s\S]*?)\$\$/g, (_match, math) => {
-    const escapedMath = math.trim()
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-    return `<div class="math-display" data-math="${encodeURIComponent(escapedMath)}"></div>`;
+    let rendered: string;
+    try {
+      rendered = katex.renderToString(math.trim(), {
+        displayMode: true,
+        output: 'mathml',
+        throwOnError: false
+      });
+    } catch {
+      rendered = `<code>${escapeHtml(math.trim())}</code>`;
+    }
+    const idx = mathBlocks.length;
+    mathBlocks.push(rendered);
+    // Use an HTML div placeholder that marked passes through unchanged
+    return `<div data-math-placeholder="${idx}"></div>`;
   });
 
   // Process inline math ($...$) - be careful not to match currency or other uses
-  // Only match single $ when not preceded/followed by space or another $
   result = result.replace(/(?<!\$)\$(?!\$)([^\$\n]+?)\$(?!\$)/g, (_match, math) => {
-    const escapedMath = math.trim()
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-    return `<span class="math-inline" data-math="${encodeURIComponent(escapedMath)}"></span>`;
+    let rendered: string;
+    try {
+      rendered = katex.renderToString(math.trim(), {
+        displayMode: false,
+        output: 'mathml',
+        throwOnError: false
+      });
+    } catch {
+      rendered = `<code>${escapeHtml(math.trim())}</code>`;
+    }
+    const idx = mathBlocks.length;
+    mathBlocks.push(rendered);
+    // Use an HTML span placeholder that marked passes through unchanged
+    return `<span data-math-placeholder="${idx}"></span>`;
   });
+
+  // Restore escaped dollar signs as literal $
+  result = result.replace(new RegExp(ESCAPED_DOLLAR_PLACEHOLDER, 'g'), '$');
+
+  // Restore code blocks
+  result = result.replace(/\x00CODEBLOCK(\d+)\x00/g, (_match, idx) => codeBlocks[parseInt(idx)]);
 
   return result;
 }
 
+// Replace math placeholders with the actual KaTeX-rendered HTML after marked processing
+function restoreMathBlocks(html: string, mathBlocks: string[]): string {
+  if (mathBlocks.length === 0) return html;
+  return html.replace(/<(div|span) data-math-placeholder="(\d+)"><\/(div|span)>/g,
+    (_match, _tag, idx) => mathBlocks[parseInt(idx)]
+  );
+}
+
 // Process embedded SVGs before markdown parsing to prevent page break issues
-async function processEmbeddedSvgs(content: string, profile: RenderProfile): Promise<string> {
+function processEmbeddedSvgs(content: string, profile: RenderProfile): string {
   let result = content;
 
-  // Regular expression to match SVG blocks (with or without wrapping divs)
-  // This captures the entire SVG block including any wrapping elements
   const svgBlockRegex = /(<div[^>]*>\s*)?<svg[\s\S]*?<\/svg>(\s*<\/div>)?/gi;
-
   let match;
   const replacements: Array<{ original: string; replacement: string }> = [];
   const widthPct = (profile.images.widthPercent * 100).toFixed(0);
 
   while ((match = svgBlockRegex.exec(content)) !== null) {
     const svgBlock = match[0];
-
-    // Extract the SVG element
     const extractedSvg = extractSvgFromHtml(svgBlock);
 
     if (extractedSvg) {
-      // Convert SVG to base64 data URI
       const base64 = Buffer.from(extractedSvg).toString('base64');
       const dataUri = `data:image/svg+xml;base64,${base64}`;
-
-      // Create img tag replacement with page-break-inside: avoid to prevent splitting
       const imgTag = `<img src="${dataUri}" alt="SVG Diagram" style="width: ${widthPct}%; max-width: 100%; height: auto; display: block; margin: 0 auto; page-break-inside: avoid;">`;
 
       replacements.push({
@@ -140,7 +272,6 @@ async function processEmbeddedSvgs(content: string, profile: RenderProfile): Pro
     }
   }
 
-  // Apply all replacements
   for (const { original, replacement } of replacements) {
     result = result.replace(original, replacement);
   }
@@ -153,19 +284,18 @@ async function processMermaidBlocks(content: string, _markdownDir: string, profi
   let processedContent = '';
   let inMermaidBlock = false;
   let mermaidContent = '';
-  
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    
+
     if (line.startsWith('```')) {
       const langMatch = line.match(/^```(\w+)?/);
-      
+
       if (inMermaidBlock) {
         // End of mermaid block - render it
         inMermaidBlock = false;
-        
+
         try {
-          // Generate mermaid diagram as PNG
           const mermaidOptions = {
             width: profile.mermaid.width,
             height: profile.mermaid.height,
@@ -173,21 +303,20 @@ async function processMermaidBlocks(content: string, _markdownDir: string, profi
             backgroundColor: profile.mermaid.backgroundColor,
             fontFamily: profile.mermaid.fontFamily || profile.fonts.mermaid,
             fontSize: profile.mermaid.fontSize,
-            dpi: profile.mermaid.dpi,  // Pass DPI for high-quality rendering
-            outputFormat: 'svg' as const  // Use SVG for vector graphics in PDF
+            dpi: profile.mermaid.dpi,
+            outputFormat: 'svg' as const
           };
-          
+
           const svgPath = await renderMermaidDiagram(mermaidContent, mermaidOptions);
-          
+
           // Read the SVG and convert to base64
           const svgData = await fs.readFile(svgPath, 'utf-8');
           const base64 = Buffer.from(svgData).toString('base64');
           const dataUri = `data:image/svg+xml;base64,${base64}`;
-          
-          // Add as HTML img tag directly to avoid markdown processing issues
+
           const widthPct = (profile.images.widthPercent * 100).toFixed(0);
           processedContent += `<img src="${dataUri}" alt="Mermaid Diagram" style="width: ${widthPct}%; max-width: 100%; height: auto; display: block; margin: 0 auto;">\n\n`;
-          
+
           // Clean up temp file
           await cleanupMermaidFile(svgPath);
         } catch (error) {
@@ -195,7 +324,7 @@ async function processMermaidBlocks(content: string, _markdownDir: string, profi
           processedContent += '```mermaid\n' + mermaidContent + '```\n';
           console.warn('Failed to render Mermaid diagram:', error);
         }
-        
+
         mermaidContent = '';
         continue;
       } else if (langMatch && langMatch[1] === 'mermaid') {
@@ -209,43 +338,42 @@ async function processMermaidBlocks(content: string, _markdownDir: string, profi
         continue;
       }
     }
-    
+
     if (inMermaidBlock) {
       mermaidContent += line + '\n';
     } else {
       processedContent += line + '\n';
     }
   }
-  
+
   return processedContent;
 }
 
 async function embedImages(html: string, markdownDir: string): Promise<string> {
   // First, fix any broken data URIs from newlines in the HTML
   let result = html.replace(/<img([^>]+)src="data:image\/([^"]+)"([^>]*)>/g, (match) => {
-    // Remove newlines and spaces within data URIs
     return match.replace(/src="data:image\/[^"]+"/g, (srcMatch) => {
       return srcMatch.replace(/\s+/g, '');
     });
   });
-  
+
   // Find all img tags
   const imgRegex = /<img[^>]+src="([^"]+)"[^>]*>/g;
   let match;
-  
+
   const replacements: Array<{ original: string; replacement: string }> = [];
-  
+
   while ((match = imgRegex.exec(result)) !== null) {
     const [fullMatch, src] = match;
-    
+
     // Skip if already a data URI or external URL
     if (src.startsWith('data:') || src.startsWith('http')) {
       continue;
     }
-    
+
     // Resolve image path
     const imagePath = path.isAbsolute(src) ? src : path.resolve(markdownDir, src);
-    
+
     try {
       // Read image and convert to base64
       const imageData = await fs.readFile(imagePath);
@@ -253,8 +381,7 @@ async function embedImages(html: string, markdownDir: string): Promise<string> {
       const mimeType = getMimeType(ext);
       const base64 = imageData.toString('base64');
       const dataUri = `data:${mimeType};base64,${base64}`;
-      
-      // Store replacement
+
       replacements.push({
         original: fullMatch,
         replacement: fullMatch.replace(src, dataUri)
@@ -263,12 +390,11 @@ async function embedImages(html: string, markdownDir: string): Promise<string> {
       console.warn(`Failed to embed image ${src}:`, error);
     }
   }
-  
-  // Apply all replacements
+
   for (const { original, replacement } of replacements) {
     result = result.replace(original, replacement);
   }
-  
+
   return result;
 }
 
@@ -285,7 +411,6 @@ function getMimeType(ext: string): string {
 }
 
 function generateHtmlDocument(content: string, profile: RenderProfile, title: string): string {
-  // Generate CSS from profile
   const css = generateCss(profile);
 
   return `<!DOCTYPE html>
@@ -293,10 +418,8 @@ function generateHtmlDocument(content: string, profile: RenderProfile, title: st
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${title}</title>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
-  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <title>${escapeHtml(title)}</title>
+  <style>${hljsCss}</style>
   <style>
     ${css}
   </style>
@@ -305,25 +428,6 @@ function generateHtmlDocument(content: string, profile: RenderProfile, title: st
   <div class="content">
     ${content}
   </div>
-  <script>
-    // Render all math elements using KaTeX
-    document.querySelectorAll('.math-display').forEach(el => {
-      const math = decodeURIComponent(el.getAttribute('data-math') || '');
-      try {
-        katex.render(math, el, { displayMode: true, throwOnError: false });
-      } catch (e) {
-        el.textContent = math;
-      }
-    });
-    document.querySelectorAll('.math-inline').forEach(el => {
-      const math = decodeURIComponent(el.getAttribute('data-math') || '');
-      try {
-        katex.render(math, el, { displayMode: false, throwOnError: false });
-      } catch (e) {
-        el.textContent = math;
-      }
-    });
-  </script>
 </body>
 </html>`;
 }
@@ -334,19 +438,19 @@ function generateCss(profile: RenderProfile): string {
   const fontSizes = profile.fontSizes || {};
   const margins = profile.margins || {};
   const codeColors = colors.code || {};
-  
+
   return `
     @page {
       size: ${profile.pdf?.pageSize || 'A4'} ${profile.pdf?.orientation || 'portrait'};
       margin: ${margins.top || '1in'} ${margins.right || '1in'} ${margins.bottom || '1in'} ${margins.left || '1in'};
     }
-    
+
     * {
       margin: 0;
       padding: 0;
       box-sizing: border-box;
     }
-    
+
     body {
       font-family: ${fonts.body};
       font-size: ${fontSizes.body || '11pt'};
@@ -354,12 +458,12 @@ function generateCss(profile: RenderProfile): string {
       line-height: 1.6;
       background: white;
     }
-    
+
     .content {
       max-width: 100%;
       margin: 0 auto;
     }
-    
+
     h1, h2, h3, h4, h5, h6 {
       font-family: ${fonts.heading};
       color: ${colors.heading || '#000000'};
@@ -368,28 +472,28 @@ function generateCss(profile: RenderProfile): string {
       line-height: 1.2;
       page-break-after: avoid;
     }
-    
+
     h1 { font-size: ${fontSizes.h1 || '24pt'}; }
     h2 { font-size: ${fontSizes.h2 || '20pt'}; }
     h3 { font-size: ${fontSizes.h3 || '16pt'}; }
     h4 { font-size: ${fontSizes.h4 || '14pt'}; }
     h5 { font-size: ${fontSizes.h5 || '12pt'}; }
     h6 { font-size: ${fontSizes.h6 || '11pt'}; }
-    
+
     p {
       margin-bottom: 1em;
       text-align: justify;
     }
-    
+
     a {
       color: ${colors.link || '#0066cc'};
       text-decoration: none;
     }
-    
+
     a:hover {
       text-decoration: underline;
     }
-    
+
     code {
       font-family: ${fonts.code};
       font-size: ${fontSizes.code || '10pt'};
@@ -398,7 +502,7 @@ function generateCss(profile: RenderProfile): string {
       padding: 0.2em 0.4em;
       border-radius: 3px;
     }
-    
+
     pre {
       background-color: ${codeColors.background || '#f6f8fa'};
       border: 1px solid #e1e4e8;
@@ -408,7 +512,7 @@ function generateCss(profile: RenderProfile): string {
       margin: 1em 0;
       page-break-inside: avoid;
     }
-    
+
     pre code {
       font-family: ${fonts.code};
       font-size: ${fontSizes.code || '10pt'};
@@ -417,14 +521,14 @@ function generateCss(profile: RenderProfile): string {
       border-radius: 0;
       color: ${codeColors.text || '#24292e'};
     }
-    
-    /* Syntax highlighting colors */
+
+    /* Syntax highlighting color overrides */
     .hljs-keyword { color: ${codeColors.keyword || '#d73a49'}; }
     .hljs-string { color: ${codeColors.string || '#032f62'}; }
     .hljs-comment { color: ${codeColors.comment || '#6a737d'}; }
     .hljs-function { color: ${codeColors.function || '#6f42c1'}; }
     .hljs-number { color: ${codeColors.number || '#005cc5'}; }
-    
+
     blockquote {
       border-left: 4px solid #dfe2e5;
       padding-left: 1em;
@@ -432,38 +536,38 @@ function generateCss(profile: RenderProfile): string {
       color: #6a737d;
       font-style: italic;
     }
-    
+
     ul, ol {
       margin: 1em 0;
       padding-left: 2em;
     }
-    
+
     li {
       margin-bottom: 0.25em;
     }
-    
+
     table {
       border-collapse: collapse;
       width: 100%;
       margin: 1em 0;
       page-break-inside: auto;
     }
-    
+
     th, td {
       border: 1px solid #dfe2e5;
       padding: 8px 12px;
       text-align: left;
     }
-    
+
     th {
       background-color: #f6f8fa;
       font-weight: bold;
     }
-    
+
     tr:nth-child(even) {
       background-color: #f9f9f9;
     }
-    
+
     img {
       width: ${(profile.images.widthPercent * 100).toFixed(0)}%;
       max-width: 100%;
@@ -472,24 +576,65 @@ function generateCss(profile: RenderProfile): string {
       margin: 1em auto;
       page-break-inside: avoid;
     }
-    
+
     hr {
       border: none;
       border-top: 2px solid #e1e4e8;
       margin: 2em 0;
     }
-    
-    /* Math styling */
-    .math-display {
-      display: block;
-      text-align: center;
-      margin: 1em 0;
-      overflow-x: auto;
+
+    /* Footnotes */
+    .footnotes {
+      margin-top: 2em;
+      padding-top: 1em;
+      border-top: 1px solid #e1e4e8;
+      font-size: 0.9em;
+      color: ${colors.text || '#1a1a1a'};
     }
 
-    .math-inline {
-      display: inline;
+    .footnotes .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      border: 0;
     }
+
+    .footnotes ol {
+      padding-left: 1.5em;
+    }
+
+    [data-footnote-ref] {
+      text-decoration: none;
+      font-size: 0.8em;
+      vertical-align: super;
+      line-height: 0;
+    }
+
+    [data-footnote-backref] {
+      text-decoration: none;
+      font-size: 0.8em;
+    }
+
+    /* Highlight (==text==) */
+    mark {
+      background-color: #fff3b0;
+      padding: 0.1em 0.2em;
+      border-radius: 2px;
+    }
+
+    /* Subscript / Superscript */
+    sub, sup {
+      font-size: 0.75em;
+      line-height: 0;
+      position: relative;
+      vertical-align: baseline;
+    }
+    sup { top: -0.5em; }
+    sub { bottom: -0.25em; }
 
     /* Print-specific styles */
     @media print {
@@ -514,65 +659,36 @@ function generateCss(profile: RenderProfile): string {
 async function generatePdf(html: string, outputPath: string, profile: RenderProfile): Promise<void> {
   const browser = await puppeteer.launch({
     headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-web-security', '--allow-file-access-from-files']
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
   });
-  
+
   try {
     const page = await browser.newPage();
-    
+
     // Set viewport
     await page.setViewport({
       width: 1200,
       height: 1600,
       deviceScaleFactor: 2
     });
-    
-    // Disable CSP to allow data URIs
-    await page.setBypassCSP(true);
-    
-    // Set HTML content with proper base tag for relative paths
+
+    // Set HTML content — fully self-contained, no external resources
     await page.setContent(html, {
-      waitUntil: ['networkidle0', 'domcontentloaded']
+      waitUntil: 'domcontentloaded'
     });
-    
+
     // Wait for all images including those with data URIs
     await page.evaluate(() => {
       return Promise.all(
         Array.from(document.images)
           .filter(img => !img.complete)
-          .map(img => new Promise((resolve) => {
-            img.addEventListener('load', resolve);
-            img.addEventListener('error', resolve);
+          .map(img => new Promise<void>((resolve) => {
+            img.addEventListener('load', () => resolve());
+            img.addEventListener('error', () => resolve());
           }))
       );
     });
 
-    // Wait for KaTeX to finish rendering math elements
-    await page.evaluate(() => {
-      // Check if there are math elements that need rendering
-      const mathElements = document.querySelectorAll('.math-display, .math-inline');
-      // KaTeX renders synchronously, but we need to wait for the CSS/fonts to load
-      // Check if KaTeX has rendered by looking for .katex elements
-      return new Promise<void>((resolve) => {
-        if (mathElements.length === 0) {
-          resolve();
-          return;
-        }
-        const checkRendered = () => {
-          const rendered = document.querySelectorAll('.katex');
-          if (rendered.length > 0) {
-            resolve();
-          } else {
-            setTimeout(checkRendered, 100);
-          }
-        };
-        checkRendered();
-      });
-    });
-
-    // Additional wait to ensure rendering is complete (fonts, etc.)
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
     // Generate PDF
     await page.pdf({
       path: outputPath,
@@ -596,7 +712,7 @@ async function generatePdf(html: string, outputPath: string, profile: RenderProf
 
 function generateHeader(profile: RenderProfile): string {
   if (!profile.pdf?.headerFooter?.showTitle) return '<div></div>';
-  
+
   return `
     <div style="font-size: ${profile.pdf?.headerFooter?.fontSize || '9pt'}; width: 100%; text-align: center;">
       <span class="title"></span>
@@ -606,17 +722,17 @@ function generateHeader(profile: RenderProfile): string {
 
 function generateFooter(profile: RenderProfile): string {
   const parts: string[] = [];
-  
+
   if (profile.pdf?.headerFooter?.showDate) {
     parts.push(`<span>${new Date().toLocaleDateString()}</span>`);
   }
-  
+
   if (profile.pdf?.headerFooter?.showPageNumbers) {
     parts.push('<span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>');
   }
-  
+
   if (parts.length === 0) return '<div></div>';
-  
+
   return `
     <div style="font-size: ${profile.pdf?.headerFooter?.fontSize || '9pt'}; width: 100%; text-align: center;">
       ${parts.join(' • ')}
