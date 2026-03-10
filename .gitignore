@@ -10,13 +10,14 @@ build/
 mmv
 mmv-*
 
-# AUR package build files
+# AUR package build files (makepkg outputs)
 .SRCINFO
 .SRCINFO-git
 mmm-*.tar.gz
 mmm-*.tar.xz
-/src/
 /pkg/
+src/markdown-mixed-media-*/
+src/mmm-*.tar.gz
 
 # TypeScript
 *.tsbuildinfo
