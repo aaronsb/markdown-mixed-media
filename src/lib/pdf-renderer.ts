@@ -5,7 +5,6 @@ import { markedEmoji } from 'marked-emoji';
 import * as nodeEmoji from 'node-emoji';
 import katex from 'katex';
 import hljs from 'highlight.js';
-import puppeteer from 'puppeteer';
 import { renderMermaidToSvg } from './mermaid.js';
 import { extractSvgFromHtml } from './svg.js';
 import { loadProfile, RenderProfile } from './config.js';
@@ -141,6 +140,11 @@ export async function renderMarkdownToPdf(
 
     return finalOutputPath;
   } catch (error) {
+    // Pass user-facing errors through unwrapped so the CLI renders the actionable
+    // message without a duplicate "Failed to generate PDF:" prefix or a stack.
+    if (error instanceof Error && error.message.startsWith('PDF export requires')) {
+      throw error;
+    }
     throw new Error(`Failed to generate PDF: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
@@ -652,10 +656,39 @@ function generateCss(profile: RenderProfile): string {
 }
 
 async function generatePdf(html: string, outputPath: string, profile: RenderProfile): Promise<void> {
-  const browser = await puppeteer.launch({
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
-  });
+  let puppeteer: any;
+  try {
+    // @ts-ignore — puppeteer is an optionalDependency; may not be installed on this platform.
+    puppeteer = (await import('puppeteer')).default;
+  } catch (err: any) {
+    if (err?.code === 'ERR_MODULE_NOT_FOUND') {
+      throw new Error(
+        'PDF export requires the optional puppeteer dependency, which is not installed on this system.\n' +
+        '  Install it:  npm install puppeteer\n' +
+        '  Or use --odt for an alternative export format.'
+      );
+    }
+    throw err;
+  }
+
+  let browser: any;
+  try {
+    browser = await puppeteer.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+  } catch (err: any) {
+    const msg = String(err?.message || err);
+    if (/could not find chrome|failed to launch|executablepath|chromium/i.test(msg)) {
+      throw new Error(
+        'PDF export requires a Chrome/Chromium browser, which was not found.\n' +
+        '  Install via your system package manager (e.g. pacman -S chromium, apt install chromium)\n' +
+        '  Or let puppeteer install one:  npx puppeteer browsers install chrome\n' +
+        '  Or use --odt for an alternative export format.'
+      );
+    }
+    throw err;
+  }
 
   try {
     const page = await browser.newPage();

@@ -48,9 +48,10 @@
     "meow": "^13.1.0",
     "node-emoji": "^2.2.0",
     "open": "^10.0.3",
-    "puppeteer": "^22.0.0",
-    "puppeteer-core": "^24.17.0",
     "sharp": "^0.33.2"
+  },
+  "optionalDependencies": {
+    "puppeteer": "^22.0.0"
   },
   "devDependencies": {
     "@types/figlet": "^1.5.8",

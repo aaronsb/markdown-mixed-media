@@ -10,21 +10,33 @@ related: []
 
 ## Context
 
-MMM currently depends on `@mermaid-js/mermaid-cli` (`mmdc`) and `puppeteer` for rendering Mermaid diagrams. These pull in a full Chromium browser (~400MB), creating several problems:
+MMM currently depends on `@mermaid-js/mermaid-cli` (`mmdc`) and `puppeteer` for rendering Mermaid diagrams and PDF export. These pull in a full Chromium browser (~400MB), creating several problems:
 
-1. **Size**: Chromium is the largest dependency by far, dwarfing everything else combined. For a CLI tool that renders markdown in the terminal, this is disproportionate.
+1. **Install portability**: `puppeteer` downloads a bundled Chromium at install time. That download is x86_64-first; it fails or is heavyweight on aarch64 (Raspberry Pi, Asahi Linux), headless containers (Alpine without the right glibc), network-restricted environments, and locked-down systems. On AUR, users on non-x86_64 architectures cannot install MMM today without manual intervention. Portability is the primary motivator — MMM is a TUI tool and should install wherever Node can.
 
-2. **Startup cost**: Every diagram render spawns a headless browser process. This adds 2-3 seconds of overhead per diagram, which is antithetical to fast CLI rendering.
+2. **Size**: Chromium is the largest dependency by far, dwarfing everything else combined. For a CLI tool that renders markdown in the terminal, this is disproportionate.
 
-3. **Terminal compatibility**: Sixel/iTerm2/Kitty image protocols break scrollback, piping (`| less`), and output capture. The most common CLI usage patterns (piping, paging, grep) cannot use bitmap images at all. Yet the current pipeline always produces bitmap output.
+3. **Startup cost**: Every diagram render spawns a headless browser process. This adds 2-3 seconds of overhead per diagram, which is antithetical to fast CLI rendering.
 
-4. **Missing format support**: There is no support for LaTeX/math formulas, which are common in technical markdown. Adding them via the current browser-based approach would deepen the Chromium dependency.
+4. **Terminal compatibility**: Sixel/iTerm2/Kitty image protocols break scrollback, piping (`| less`), and output capture. The most common CLI usage patterns (piping, paging, grep) cannot use bitmap images at all. Yet the current pipeline always produces bitmap output.
 
-5. **Single renderer**: All diagram rendering goes through one tool (`mmdc`). There is no way to support other diagram languages (D2, GraphViz, PlantUML) without adding more heavy dependencies.
+5. **Missing format support**: There is no support for LaTeX/math formulas in the terminal renderer (KaTeX is wired into PDF/ODT only). Adding terminal math via the current browser-based approach would deepen the Chromium dependency.
+
+6. **Single renderer**: All diagram rendering goes through one tool (`mmdc`). There is no way to support other diagram languages (D2, GraphViz, PlantUML) without adding more heavy dependencies.
 
 ## Decision
 
-Replace the Chromium-based rendering pipeline with a pluggable, browserless architecture that supports multiple output modes and diagram formats.
+Replace the Chromium-dependent rendering pipeline with a pluggable, browserless-by-default architecture. Browser-dependent features (PDF export via puppeteer) become opt-in, gated by runtime detection so install never fails on platforms where Chromium is unavailable.
+
+### 0. PDF Generation: puppeteer as an optional dependency
+
+`puppeteer` moves from `dependencies` to `optionalDependencies`. Terminal and ODT export do not need it. PDF export does, and the runtime detects availability:
+
+- Module absent → surface a clear, actionable error pointing at `npm install puppeteer` or `--odt`.
+- Module present, Chromium binary absent → surface a distinct error pointing at system Chromium (`pacman -S chromium`, `apt install chromium`) or `npx puppeteer browsers install chrome`.
+- Both present → PDF export proceeds unchanged.
+
+`check-deps` reports PDF availability at startup the same way it reports `chafa` and `mmdc`. On AUR, the PKGBUILD already treats system `chromium` as an optional dependency; this change aligns the npm side with that model.
 
 ### 1. Output Mode System
 
@@ -119,11 +131,11 @@ Where `"auto"` means: use the best available renderer for that format.
 
 ### Positive
 
-- Eliminates ~400MB Chromium dependency from the install
-- Removes `puppeteer` and `@mermaid-js/mermaid-cli` from `package.json`
-- Diagrams render instantly (no browser startup)
-- Output works with `| less`, `| grep`, scrollback, and pipes
-- Adds LaTeX/math formula support (new capability)
+- Install succeeds on any platform Node runs on — aarch64, Alpine, restricted networks, locked-down systems — because Chromium is no longer a hard dependency
+- PDF export is opt-in: users who want it install `puppeteer` (or point at system Chromium); users who don't save ~400MB and skip the Chromium download
+- Core mermaid diagrams render instantly (no browser startup) via `beautiful-mermaid`
+- Output works with `| less`, `| grep`, scrollback, and pipes (once output modes land)
+- Adds LaTeX/math formula support in the terminal (new capability, once KaTeX terminal path lands)
 - Opens the door to D2, GraphViz, PlantUML, and other diagram languages
 - Users choose their tradeoff: fidelity (pixel) vs compatibility (text/symbols)
 - Config preference means users set it once and forget
@@ -131,6 +143,7 @@ Where `"auto"` means: use the best available renderer for that format.
 ### Negative
 
 - `beautiful-mermaid` may not support all Mermaid diagram types that `mmdc` does (it's a newer, smaller project). Some edge cases may regress until coverage catches up
+- PDF export now requires a two-step install on fresh systems (`npm install mmm` then `npm install puppeteer` + a Chromium binary). The tradeoff is that the base install works on platforms where it previously didn't
 - ASCII/symbol rendering of complex diagrams will be lower fidelity than pixel rendering
 - More rendering paths to test (3 output modes x N diagram formats)
 - KaTeX supports a subset of LaTeX, not the full language
@@ -168,8 +181,17 @@ Where `"auto"` means: use the best available renderer for that format.
 - Fixed `marked@17` / `marked-terminal@6.2.0` incompatibility (downgraded to `marked@15.0.12` + `marked-terminal@7.3.0`)
 - Added `renderMermaidToSvg()` API for PDF/ODT pipelines to get SVG strings directly without file I/O
 
+### Phase 2 (completed)
+- Moved `puppeteer` from `dependencies` to `optionalDependencies`
+- Dropped dead `puppeteer-core` dependency
+- Converted `pdf-renderer.ts` from static to dynamic `import('puppeteer')` scoped inside `generatePdf()` so module load never touches puppeteer
+- Added two-layer runtime error UX: module-missing vs Chromium-missing, each with actionable install guidance and `--odt` fallback hint
+- `check-deps` reports PDF export availability at startup (new `puppeteer` field in `DependencyStatus`), detected via `createRequire(import.meta.url).resolve('puppeteer')` — no side effects, no Chromium download
+- Verified: `npm install --omit=optional` succeeds, terminal rendering works, `--pdf` fails with friendly error
+
 ### Remaining phases
 - Output mode system (text/symbols/pixel with auto-detection)
 - Pluggable renderer registry with configurable backends per format
 - Config UI for render mode and renderer preferences
-- Removal of puppeteer and mermaid-cli from core dependencies (pending beautiful-mermaid coverage validation)
+- KaTeX in the terminal renderer (currently PDF/ODT only)
+- Gradual `mmdc` removal from `dependencies` once `beautiful-mermaid` coverage is validated across real-world mermaid diagrams in the wild
