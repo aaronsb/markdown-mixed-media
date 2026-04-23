@@ -167,7 +167,12 @@ async function main() {
       }
     }
   } catch (error) {
-    if (cli.flags.pdf) {
+    // User-facing errors (runtime availability checks etc.) start with a recognizable
+    // prefix and should print just the message — no "Error:" wrapper, no stack trace.
+    const isUserFacing = error instanceof Error && /^(PDF export requires|ODT export requires)/.test(error.message);
+    if (isUserFacing) {
+      console.error((error as Error).message);
+    } else if (cli.flags.pdf) {
       console.error('Failed to generate PDF:', error);
     } else if (cli.flags.odt) {
       console.error('Failed to generate ODT:', error);

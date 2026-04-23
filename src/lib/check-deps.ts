@@ -1,8 +1,12 @@
 import { execSync } from 'child_process';
+import { createRequire } from 'module';
+
+const _require = createRequire(import.meta.url);
 
 export interface DependencyStatus {
   chafa: boolean;
   mermaidCli: boolean;
+  puppeteer: boolean;
   hasImageSupport: boolean;
 }
 
@@ -10,6 +14,7 @@ export function checkDependencies(): DependencyStatus {
   const status: DependencyStatus = {
     chafa: false,
     mermaidCli: false,
+    puppeteer: false,
     hasImageSupport: false
   };
 
@@ -30,6 +35,14 @@ export function checkDependencies(): DependencyStatus {
     // Not found
   }
 
+  // Check for puppeteer (optional — gates PDF export)
+  // createRequire.resolve checks installed-ness without executing the module.
+  try {
+    _require.resolve('puppeteer');
+    status.puppeteer = true;
+  } catch {
+    // Not installed
+  }
 
   return status;
 }
@@ -46,8 +59,15 @@ export function printDependencyWarnings(status: DependencyStatus): void {
   }
 
   if (!status.mermaidCli) {
-    console.log('ℹ️  Note: Mermaid diagrams require @mermaid-js/mermaid-cli');
-    console.log('   They will be shown as code blocks until installed.');
+    console.log('ℹ️  Built-in mermaid rendering available (flowchart, sequence, class, ER, state, XY charts).');
+    console.log('   Install mermaid-cli for extended diagram support: npm install -g @mermaid-js/mermaid-cli');
+    console.log('');
+  }
+
+  if (!status.puppeteer) {
+    console.log('ℹ️  PDF export (--pdf) is not available — puppeteer is not installed.');
+    console.log('   Install it to enable PDF export: npm install puppeteer');
+    console.log('   ODT export (--odt) works without puppeteer.');
     console.log('');
   }
 }

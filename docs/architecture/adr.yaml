@@ -1,0 +1,39 @@
+# ADR Configuration for Markdown Mixed Media (MMM)
+
+project_name: Markdown Mixed Media
+
+domains:
+  core:
+    range: [100, 199]
+    name: Core
+    description: Core rendering pipeline, output modes, architecture
+    folder: core
+
+  rendering:
+    range: [200, 299]
+    name: Rendering
+    description: Diagram, math, image, and media rendering backends
+    folder: rendering
+
+  delivery:
+    range: [300, 399]
+    name: Delivery
+    description: Distribution, packaging, dependencies, release
+    folder: delivery
+
+statuses:
+  - Draft
+  - Proposed
+  - Accepted
+  - Superseded
+  - Deprecated
+
+defaults:
+  deciders: [aaronsb]
+  status: Draft
+
+legacy:
+  range: [1, 99]
+  label: "Legacy"
+
+viewer: cat {file}

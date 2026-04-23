@@ -5,8 +5,7 @@ import { markedEmoji } from 'marked-emoji';
 import * as nodeEmoji from 'node-emoji';
 import katex from 'katex';
 import hljs from 'highlight.js';
-import puppeteer from 'puppeteer';
-import { renderMermaidDiagram, cleanupMermaidFile } from './mermaid.js';
+import { renderMermaidToSvg } from './mermaid.js';
 import { extractSvgFromHtml } from './svg.js';
 import { loadProfile, RenderProfile } from './config.js';
 import path from 'path';
@@ -141,6 +140,11 @@ export async function renderMarkdownToPdf(
 
     return finalOutputPath;
   } catch (error) {
+    // Pass user-facing errors through unwrapped so the CLI renders the actionable
+    // message without a duplicate "Failed to generate PDF:" prefix or a stack.
+    if (error instanceof Error && error.message.startsWith('PDF export requires')) {
+      throw error;
+    }
     throw new Error(`Failed to generate PDF: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
@@ -307,18 +311,13 @@ async function processMermaidBlocks(content: string, _markdownDir: string, profi
             outputFormat: 'svg' as const
           };
 
-          const svgPath = await renderMermaidDiagram(mermaidContent, mermaidOptions);
+          const svgData = await renderMermaidToSvg(mermaidContent, mermaidOptions);
 
-          // Read the SVG and convert to base64
-          const svgData = await fs.readFile(svgPath, 'utf-8');
           const base64 = Buffer.from(svgData).toString('base64');
           const dataUri = `data:image/svg+xml;base64,${base64}`;
 
           const widthPct = (profile.images.widthPercent * 100).toFixed(0);
           processedContent += `<img src="${dataUri}" alt="Mermaid Diagram" style="width: ${widthPct}%; max-width: 100%; height: auto; display: block; margin: 0 auto;">\n\n`;
-
-          // Clean up temp file
-          await cleanupMermaidFile(svgPath);
         } catch (error) {
           // If mermaid rendering fails, include as code block
           processedContent += '```mermaid\n' + mermaidContent + '```\n';
@@ -657,10 +656,39 @@ function generateCss(profile: RenderProfile): string {
 }
 
 async function generatePdf(html: string, outputPath: string, profile: RenderProfile): Promise<void> {
-  const browser = await puppeteer.launch({
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
-  });
+  let puppeteer: any;
+  try {
+    // @ts-ignore — puppeteer is an optionalDependency; may not be installed on this platform.
+    puppeteer = (await import('puppeteer')).default;
+  } catch (err: any) {
+    if (err?.code === 'ERR_MODULE_NOT_FOUND') {
+      throw new Error(
+        'PDF export requires the optional puppeteer dependency, which is not installed on this system.\n' +
+        '  Install it:  npm install puppeteer\n' +
+        '  Or use --odt for an alternative export format.'
+      );
+    }
+    throw err;
+  }
+
+  let browser: any;
+  try {
+    browser = await puppeteer.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+  } catch (err: any) {
+    const msg = String(err?.message || err);
+    if (/could not find chrome|failed to launch|executablepath|chromium/i.test(msg)) {
+      throw new Error(
+        'PDF export requires a Chrome/Chromium browser, which was not found.\n' +
+        '  Install via your system package manager (e.g. pacman -S chromium, apt install chromium)\n' +
+        '  Or let puppeteer install one:  npx puppeteer browsers install chrome\n' +
+        '  Or use --odt for an alternative export format.'
+      );
+    }
+    throw err;
+  }
 
   try {
     const page = await browser.newPage();

@@ -1,6 +1,9 @@
 ---
-keywords: pdf|render|katex|math|mermaid|latex|puppeteer
+description: PDF rendering pipeline covering KaTeX math, Mermaid diagrams, SVG embedding, and Puppeteer output
+vocabulary: pdf render katex math mermaid latex puppeteer mathml svg
+pattern: pdf|render|katex|math|mermaid|latex|puppeteer
 files: pdf-renderer\.ts$
+scope: agent, subagent
 ---
 # PDF Rendering Pipeline
 

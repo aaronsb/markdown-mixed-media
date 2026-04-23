@@ -1,6 +1,9 @@
 ---
-keywords: release|publish|aur|version|bump|ship
+description: Release workflow for GitHub releases and AUR package publishing
+vocabulary: release publish aur version bump ship pkgbuild tarball
+pattern: release|publish|aur|version|bump|ship
 commands: create-release|update-aur|make release|make aur
+scope: agent, subagent
 ---
 # Release Workflow
 

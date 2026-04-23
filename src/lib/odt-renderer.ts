@@ -1,4 +1,4 @@
-import { renderMermaidDiagram, cleanupMermaidFile } from './mermaid.js';
+import { renderMermaidToSvg } from './mermaid.js';
 import { extractSvgFromHtml } from './svg.js';
 import { loadProfile, RenderProfile } from './config.js';
 import path from 'path';
@@ -136,24 +136,19 @@ async function processMermaidBlocks(content: string, _markdownDir: string, profi
             outputFormat: 'svg' as const  // Use SVG for vector graphics in ODT
           };
           
-          const svgPath = await renderMermaidDiagram(mermaidContent, mermaidOptions);
-          
-          // For ODT, we'll keep the image file and reference it
-          // Create a temp directory for images if it doesn't exist
+          const svgData = await renderMermaidToSvg(mermaidContent, mermaidOptions);
+
+          // Write SVG to temp directory for Pandoc to reference
           const tempDir = path.join(os.tmpdir(), 'mmm-odt-images');
           await fs.mkdir(tempDir, { recursive: true });
-          
-          // Copy the SVG to temp directory with a unique name
+
           const imageName = `mermaid-${Date.now()}-${Math.random().toString(36).substr(2, 9)}.svg`;
           const tempImagePath = path.join(tempDir, imageName);
-          await fs.copyFile(svgPath, tempImagePath);
-          
+          await fs.writeFile(tempImagePath, svgData, 'utf-8');
+
           // Add as markdown image with width attribute for Pandoc
           const widthPercent = Math.round(profile.images.widthPercent * 100);
           processedContent += `![Mermaid Diagram](${tempImagePath}){width=${widthPercent}%}\n\n`;
-          
-          // Clean up original temp file
-          await cleanupMermaidFile(svgPath);
         } catch (error) {
           // If mermaid rendering fails, include as code block
           processedContent += '```mermaid\n' + mermaidContent + '```\n';
