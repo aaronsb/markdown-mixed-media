@@ -44,7 +44,12 @@ async function createRenderer(profile: any) {
   const renderer = Object.create(baseRenderer);
   
   // Override the code method to use our syntax highlighter
-  renderer.code = function(code: string, lang?: string) {
+  renderer.code = function(code: string | { text: string; lang?: string; escaped?: boolean }, lang?: string) {
+    // Handle token objects (marked v13+)
+    if (typeof code === 'object') {
+      lang = code.lang;
+      code = code.text;
+    }
     // Apply our custom syntax highlighting
     const highlighted = lang ? highlightCode(code, lang) : highlightCode(code, detectLanguage(code));
     
@@ -61,7 +66,27 @@ async function createRenderer(profile: any) {
   const TABLE_ROW_WRAP = '*|*|*|*';
   const TABLE_ROW_WRAP_REGEXP = new RegExp(TABLE_ROW_WRAP.replace(/[|*]/g, '\\$&'), 'g');
   
-  renderer.table = function(header: string, body: string) {
+  renderer.table = function(header: string | { header: any[]; rows: any[][] }, body: string) {
+    // Handle token objects (marked v13+)
+    if (typeof header === 'object') {
+      const token = header;
+      let headerStr = '';
+      for (let j = 0; j < token.header.length; j++) {
+        headerStr += baseRenderer.tablecell.call(this, token.header[j]);
+      }
+      header = baseRenderer.tablerow.call(this, { text: headerStr });
+
+      body = '';
+      for (let j = 0; j < token.rows.length; j++) {
+        const row = token.rows[j];
+        let cell = '';
+        for (let k = 0; k < row.length; k++) {
+          cell += baseRenderer.tablecell.call(this, row[k]);
+        }
+        body += baseRenderer.tablerow.call(this, { text: cell });
+      }
+    }
+
     // Helper function to parse table rows
     const parseTableRow = (text: string) => {
       if (!text) return [];
