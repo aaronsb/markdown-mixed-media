@@ -156,9 +156,9 @@ Where `"auto"` means: use the best available renderer for that format.
 
 ## Alternatives Considered
 
-### Keep mmdc, add renderers alongside it
-- Would not solve the Chromium dependency problem for the core install
-- Rejected because the primary motivation is removing the browser requirement
+### Make mmdc + puppeteer the primary path, add renderers alongside
+- Closest to the legacy behavior; no portability gain for the core install
+- Rejected because it leaves aarch64 / Alpine / locked-down installs broken. The chosen hybrid — `beautiful-mermaid` as the always-available core renderer with `mmdc` + `puppeteer` as runtime-detected fallbacks — does give us the "add renderers alongside" shape, but with the portability guarantee flipped: browserless by default, browser-backed features opt-in
 
 ### Use Kroki as the primary renderer
 - Would handle all diagram types through one API
