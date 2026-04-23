@@ -6,7 +6,7 @@ import * as nodeEmoji from 'node-emoji';
 import katex from 'katex';
 import hljs from 'highlight.js';
 import puppeteer from 'puppeteer';
-import { renderMermaidDiagram, cleanupMermaidFile } from './mermaid.js';
+import { renderMermaidToSvg } from './mermaid.js';
 import { extractSvgFromHtml } from './svg.js';
 import { loadProfile, RenderProfile } from './config.js';
 import path from 'path';
@@ -307,18 +307,13 @@ async function processMermaidBlocks(content: string, _markdownDir: string, profi
             outputFormat: 'svg' as const
           };
 
-          const svgPath = await renderMermaidDiagram(mermaidContent, mermaidOptions);
+          const svgData = await renderMermaidToSvg(mermaidContent, mermaidOptions);
 
-          // Read the SVG and convert to base64
-          const svgData = await fs.readFile(svgPath, 'utf-8');
           const base64 = Buffer.from(svgData).toString('base64');
           const dataUri = `data:image/svg+xml;base64,${base64}`;
 
           const widthPct = (profile.images.widthPercent * 100).toFixed(0);
           processedContent += `<img src="${dataUri}" alt="Mermaid Diagram" style="width: ${widthPct}%; max-width: 100%; height: auto; display: block; margin: 0 auto;">\n\n`;
-
-          // Clean up temp file
-          await cleanupMermaidFile(svgPath);
         } catch (error) {
           // If mermaid rendering fails, include as code block
           processedContent += '```mermaid\n' + mermaidContent + '```\n';

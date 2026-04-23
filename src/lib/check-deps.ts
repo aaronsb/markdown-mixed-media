@@ -46,8 +46,8 @@ export function printDependencyWarnings(status: DependencyStatus): void {
   }
 
   if (!status.mermaidCli) {
-    console.log('ℹ️  Note: Mermaid diagrams require @mermaid-js/mermaid-cli');
-    console.log('   They will be shown as code blocks until installed.');
+    console.log('ℹ️  Built-in mermaid rendering available (flowchart, sequence, class, ER, state, XY charts).');
+    console.log('   Install mermaid-cli for extended diagram support: npm install -g @mermaid-js/mermaid-cli');
     console.log('');
   }
 }

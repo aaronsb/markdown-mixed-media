@@ -3,36 +3,29 @@ import { promisify } from 'util';
 import fs from 'fs/promises';
 import path from 'path';
 import crypto from 'crypto';
+import { renderMermaidCore } from './mermaid-core.js';
 
 const execAsync = promisify(exec);
 
-let mermaidAvailable: boolean | undefined = undefined;
-let mermaidWarningShown = false;
+let mmdcAvailable: boolean | undefined = undefined;
+let mmdcWarningShown = false;
 
 /**
  * Check if mermaid-cli (mmdc) is available on the system
  */
-async function checkMermaidAvailable(): Promise<boolean> {
-  if (mermaidAvailable !== undefined) {
-    return mermaidAvailable;
+async function checkMmdcAvailable(): Promise<boolean> {
+  if (mmdcAvailable !== undefined) {
+    return mmdcAvailable;
   }
 
   try {
     await execAsync('which mmdc');
-    mermaidAvailable = true;
+    mmdcAvailable = true;
   } catch {
-    mermaidAvailable = false;
-    if (!mermaidWarningShown) {
-      console.error('\n⚠️  Mermaid CLI not found. Install mermaid-cli for diagram support:');
-      console.error('  • Arch/Manjaro: yay -S mermaid-cli or pacman -S mermaid-cli');
-      console.error('  • Ubuntu/Debian: npm install -g @mermaid-js/mermaid-cli');
-      console.error('  • macOS: brew install mermaid-cli or npm install -g @mermaid-js/mermaid-cli');
-      console.error('  • Fedora: npm install -g @mermaid-js/mermaid-cli\n');
-      mermaidWarningShown = true;
-    }
+    mmdcAvailable = false;
   }
 
-  return mermaidAvailable;
+  return mmdcAvailable;
 }
 
 /**
@@ -49,65 +42,45 @@ async function createPlaceholderImage(
     Mermaid Diagram
   </text>
   <text x="400" y="210" text-anchor="middle" fill="#666" font-family="monospace" font-size="14">
-    mermaid-cli not installed
+    Unsupported diagram type
   </text>
   <text x="400" y="240" text-anchor="middle" fill="#666" font-family="monospace" font-size="12">
-    Install with: npm install -g @mermaid-js/mermaid-cli
+    Install mermaid-cli for extended diagram support:
   </text>
   <text x="400" y="260" text-anchor="middle" fill="#666" font-family="monospace" font-size="12">
-    or via your system package manager
+    npm install -g @mermaid-js/mermaid-cli
   </text>
 </svg>`;
     await fs.writeFile(outputFile, svgContent, 'utf-8');
   } else {
-    // For PNG, create a simple SVG and note that it won't be converted
-    // In production, you might use a library like sharp to convert, but for now just use SVG
     const svgFile = outputFile.replace('.png', '.svg');
     await createPlaceholderImage('svg', svgFile);
-    // Return the SVG file instead of PNG
     return svgFile;
   }
 
   return outputFile;
 }
 
-export async function renderMermaidDiagram(
+/**
+ * Render a mermaid diagram using mmdc (mermaid-cli).
+ * Returns the path to the rendered file.
+ */
+async function renderWithMmdc(
   mermaidCode: string,
-  options?: {
-    width?: number;
-    height?: number;
-    theme?: 'dark' | 'light' | 'default' | 'forest' | 'neutral';
-    backgroundColor?: 'transparent' | string;
-    fontFamily?: string;
-    fontSize?: string;
-    dpi?: number;
-    outputFormat?: 'png' | 'svg';
-  }
+  outputFile: string,
+  options?: MermaidRenderOptions
 ): Promise<string> {
-  const outputFormat = options?.outputFormat || 'png';
   const hash = crypto.createHash('md5').update(mermaidCode).digest('hex').substring(0, 8);
   const tmpDir = '/tmp';
-  const outputFile = path.join(tmpDir, `mermaid-${hash}.${outputFormat}`);
-
-  // Check if mermaid-cli is available
-  const isAvailable = await checkMermaidAvailable();
-
-  if (!isAvailable) {
-    // Create placeholder image with instructions
-    return createPlaceholderImage(outputFormat, outputFile);
-  }
-
-  // Mermaid is available, render the diagram
   const mermaidFile = path.join(tmpDir, `mermaid-${hash}.mmd`);
   const configFile = path.join(tmpDir, `mermaid-config-${hash}.json`);
 
   try {
-    // Create mermaid config
     const mermaidConfig: any = {
       theme: options?.theme || 'dark',
       themeVariables: {},
       flowchart: {
-        htmlLabels: false  // Use native SVG text for compatibility
+        htmlLabels: false
       }
     };
 
@@ -121,7 +94,6 @@ export async function renderMermaidDiagram(
     await fs.writeFile(configFile, JSON.stringify(mermaidConfig), 'utf-8');
     await fs.writeFile(mermaidFile, mermaidCode, 'utf-8');
 
-    // Build mmdc command
     const width = options?.width || 1200;
     const height = options?.height || 800;
     const theme = options?.theme || 'dark';
@@ -140,25 +112,105 @@ export async function renderMermaidDiagram(
 
     await execAsync(cmd, { timeout: 30000 });
 
-    // Clean up temp files
     await fs.unlink(mermaidFile).catch(() => {});
     await fs.unlink(configFile).catch(() => {});
 
     return outputFile;
   } catch (error) {
-    // Clean up temp files on error
     await fs.unlink(mermaidFile).catch(() => {});
     await fs.unlink(configFile).catch(() => {});
     await fs.unlink(outputFile).catch(() => {});
-
-    console.error('Failed to render mermaid diagram:', error);
-
-    // Return placeholder on error
-    return createPlaceholderImage(outputFormat, outputFile);
+    throw error;
   }
 }
 
-// Clean up function to remove temporary files
+export interface MermaidRenderOptions {
+  width?: number;
+  height?: number;
+  theme?: 'dark' | 'light' | 'default' | 'forest' | 'neutral';
+  backgroundColor?: 'transparent' | string;
+  fontFamily?: string;
+  fontSize?: string;
+  dpi?: number;
+  outputFormat?: 'png' | 'svg';
+}
+
+/**
+ * Render a mermaid diagram. Tries the built-in renderer first (beautiful-mermaid),
+ * then falls back to mmdc if the diagram type is unsupported or rendering fails.
+ *
+ * Returns the path to a rendered file (PNG or SVG).
+ */
+export async function renderMermaidDiagram(
+  mermaidCode: string,
+  options?: MermaidRenderOptions
+): Promise<string> {
+  const outputFormat = options?.outputFormat || 'png';
+  const hash = crypto.createHash('md5').update(mermaidCode).digest('hex').substring(0, 8);
+  const tmpDir = '/tmp';
+  const outputFile = path.join(tmpDir, `mermaid-${hash}.${outputFormat}`);
+
+  // Try built-in renderer first (SVG output, then write to file)
+  const coreResult = renderMermaidCore(mermaidCode, 'svg');
+  if (coreResult?.svg) {
+    if (outputFormat === 'svg') {
+      await fs.writeFile(outputFile, coreResult.svg, 'utf-8');
+      return outputFile;
+    }
+    // For PNG output: write SVG to temp file, chafa/image pipeline handles SVG directly
+    const svgFile = path.join(tmpDir, `mermaid-${hash}.svg`);
+    await fs.writeFile(svgFile, coreResult.svg, 'utf-8');
+    return svgFile;
+  }
+
+  // Built-in renderer didn't handle it — try mmdc
+  const hasMmdc = await checkMmdcAvailable();
+  if (hasMmdc) {
+    try {
+      return await renderWithMmdc(mermaidCode, outputFile, options);
+    } catch (error) {
+      console.error('mmdc failed to render mermaid diagram:', error);
+    }
+  }
+
+  // Neither renderer could handle it
+  if (!mmdcWarningShown) {
+    console.error('\n⚠️  Diagram type not supported by built-in renderer.');
+    console.error('   Install mermaid-cli for extended diagram support:');
+    console.error('   npm install -g @mermaid-js/mermaid-cli\n');
+    mmdcWarningShown = true;
+  }
+
+  return createPlaceholderImage(outputFormat, outputFile);
+}
+
+/**
+ * Render a mermaid diagram and return the SVG string directly.
+ * Used by PDF/ODT pipelines to avoid file I/O roundtrip when possible.
+ */
+export async function renderMermaidToSvg(
+  mermaidCode: string,
+  options?: MermaidRenderOptions
+): Promise<string> {
+  // Try built-in renderer first (returns SVG string directly)
+  const coreResult = renderMermaidCore(mermaidCode, 'svg');
+  if (coreResult?.svg) {
+    return coreResult.svg;
+  }
+
+  // Fall back to mmdc → file → read
+  const filePath = await renderMermaidDiagram(mermaidCode, {
+    ...options,
+    outputFormat: 'svg',
+  });
+  const svgData = await fs.readFile(filePath, 'utf-8');
+  await cleanupMermaidFile(filePath);
+  return svgData;
+}
+
+/**
+ * Clean up function to remove temporary files
+ */
 export async function cleanupMermaidFile(filePath: string): Promise<void> {
   try {
     await fs.unlink(filePath);
