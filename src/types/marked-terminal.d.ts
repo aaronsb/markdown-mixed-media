@@ -6,6 +6,7 @@ declare module 'marked-terminal' {
     blockquote?: (quote: string) => string;
     html?: (html: string) => string;
     heading?: (text: string, level: number) => string;
+    firstHeading?: (text: string) => string;
     hr?: () => string;
     list?: (body: string, ordered: boolean) => string;
     listitem?: (text: string) => string;
@@ -29,11 +30,13 @@ declare module 'marked-terminal' {
     tableOptions?: any;
     tab?: number;
     reflowText?: boolean;
-    firstHeading?: number;
   }
 
   class TerminalRenderer extends marked.Renderer {
     constructor(options?: TerminalRendererOptions);
+    tablecell(content: string | object): string;
+    tablerow(content: string | object): string;
+    space(): string;
   }
 
   export default TerminalRenderer;
