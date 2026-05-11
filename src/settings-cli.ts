@@ -99,7 +99,10 @@ class SettingsManager {
       // Basic settings
       console.log(`Output: ${profile.output}`);
       console.log(`Theme: ${profile.theme}`);
-      
+      if (profile.output === 'terminal') {
+        console.log(`Render mode: ${profile.renderMode || 'auto'}`);
+      }
+
       // Images
       console.log(chalk.cyan('\nImages:'));
       console.log(`  Width: ${(profile.images.widthPercent * 100).toFixed(0)}%`);
@@ -166,10 +169,11 @@ class SettingsManager {
     console.log(`3. Transparency threshold: ${profile.terminal?.transparency?.threshold || 0.95}`);
     console.log(`4. Table word wrap: ${profile.tables?.wordWrap ? 'Enabled' : 'Disabled'}`);
     console.log(`5. Table width: ${((profile.tables?.widthPercent || 0.95) * 100).toFixed(0)}%`);
-    console.log('6. Back to main menu\n');
+    console.log(`6. Math render mode: ${profile.renderMode || 'auto'}`);
+    console.log('7. Back to main menu\n');
 
-    const choice = await rl.question('Select setting to edit (1-6): ');
-    
+    const choice = await rl.question('Select setting to edit (1-7): ');
+
     switch (choice) {
       case '1':
         const width = await rl.question('Enter fallback terminal width (40-200): ');
@@ -229,10 +233,27 @@ class SettingsManager {
         break;
       
       case '6':
+        console.log('\nMath / rich-media render mode:');
+        console.log('  1. auto  — sixel/kitty images on a terminal, Unicode text when piped');
+        console.log('  2. pixel — always render as sixel/kitty images');
+        console.log('  3. text  — always render as a Unicode approximation');
+        const rmChoice = await rl.question('Select (1-3): ');
+        const rmModes = ['auto', 'pixel', 'text'] as const;
+        const rmIdx = parseInt(rmChoice) - 1;
+        if (rmIdx >= 0 && rmIdx < rmModes.length) {
+          profile.renderMode = rmModes[rmIdx];
+          await this.saveConfig();
+          console.log(chalk.green('✅ Setting saved!'));
+        } else {
+          console.log(chalk.red('Invalid selection.'));
+        }
+        break;
+
+      case '7':
         await this.showMainMenu();
         return;
     }
-    
+
     await this.pause();
     await this.editTerminalSettings();
   }
