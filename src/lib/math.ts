@@ -162,6 +162,38 @@ export function svgWidthEx(svg: string): number | null {
   return m ? parseFloat(m[1]) : null;
 }
 
+// Inline-math placeholders: a neutral token that passes through marked /
+// marked-terminal untouched (no markdown-special chars, no spaces so it is
+// never broken across a wrap), to be substituted with rendered output afterward.
+const inlineMathPlaceholder = (i: number): string => `⟦MMM_MATH_${i}⟧`;
+export const INLINE_MATH_PLACEHOLDER_RE = /⟦MMM_MATH_(\d+)⟧/g;
+
+/**
+ * Replace inline `$…$` math in a single line with placeholder tokens, appending
+ * each expression's LaTeX to `exprs`. Inline code spans and escaped `$` are
+ * left alone, and a `$` adjacent to whitespace is not treated as a delimiter
+ * (so "$5 and $6" stays literal). The caller renders the collected expressions
+ * and substitutes the placeholders back via {@link INLINE_MATH_PLACEHOLDER_RE}.
+ */
+export function extractInlineMath(line: string, exprs: string[]): string {
+  const codeSpans: string[] = [];
+  let out = line.replace(/`[^`]+`/g, (m) => {
+    codeSpans.push(m);
+    return `\x00MMM_CS_${codeSpans.length - 1}\x00`;
+  });
+  out = out.split('\\$').join('\x00MMM_ESC_DOLLAR\x00');
+
+  out = out.replace(/(?<![$\\])\$(?!\s)([^$\n]+?)(?<!\s)\$(?!\$)/g, (_m, latex) => {
+    const i = exprs.length;
+    exprs.push(String(latex).trim());
+    return inlineMathPlaceholder(i);
+  });
+
+  out = out.split('\x00MMM_ESC_DOLLAR\x00').join('$');
+  out = out.replace(/\x00MMM_CS_(\d+)\x00/g, (_m, i) => codeSpans[Number(i)]);
+  return out;
+}
+
 // MathJax SVG draws glyphs with `fill="currentColor"` over a transparent
 // background. Rasterized by chafa that becomes black-on-black (or black-on-
 // whatever-the-fill-is). Recolour the glyphs, and optionally paint an opaque

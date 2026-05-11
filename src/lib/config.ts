@@ -64,10 +64,11 @@ export interface RenderProfile {
   math?: {
     color: string;                       // glyph colour over a (usually transparent) canvas
     background: 'transparent' | string;  // 'transparent' lets the terminal background show
-    scale: number;                       // multiplier on the formula's natural size
-    maxWidthPercent: number;             // never wider than this fraction of the terminal
-    minWidthPercent: number;             // never narrower than this fraction of the terminal
-    alignment: 'left' | 'center' | 'right';
+    scale: number;                       // display ($$…$$): multiplier on the formula's natural size
+    inlineScale: number;                 // inline ($…$): multiplier on the formula's natural size
+    maxWidthPercent: number;             // display: never wider than this fraction of the terminal
+    minWidthPercent: number;             // display: never narrower than this fraction of the terminal
+    alignment: 'left' | 'center' | 'right';  // display: justification within the line
   };
   // Terminal-specific settings
   terminal?: {
@@ -135,9 +136,10 @@ const terminalProfile: RenderProfile = {
   math: {
     color: '#e6e6e6',          // light glyphs for a dark terminal
     background: 'transparent',  // let the terminal background show through
-    scale: 3,                   // formula at ~3x its natural extent
-    maxWidthPercent: 0.6,       // but never wider than 60% of the terminal
-    minWidthPercent: 0.12,      // ...nor narrower than 12% (tiny formulas stay legible)
+    scale: 3,                   // display: formula at ~3x its natural extent
+    inlineScale: 0.7,           // inline: roughly text-height, kept small
+    maxWidthPercent: 0.6,       // display: but never wider than 60% of the terminal
+    minWidthPercent: 0.12,      // display: ...nor narrower than 12% (tiny formulas stay legible)
     alignment: 'center'
   },
   terminal: {
