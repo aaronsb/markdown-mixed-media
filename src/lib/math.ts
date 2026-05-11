@@ -1,0 +1,117 @@
+import katex from 'katex';
+
+/**
+ * Server-side math rendering shared across MMM's output backends.
+ *
+ * Math is rendered with KaTeX to presentation MathML. MathML is the format the
+ * targets that need server-side math want: Chromium renders it natively (the
+ * PDF path), and ODF embeds it as formula objects. The terminal path needs
+ * raster output instead — that will live here too as `renderMathToSvg()` once
+ * the terminal math work lands, but for now it is not implemented.
+ *
+ * ODT does NOT go through this module: `odt-renderer.ts` hands raw markdown to
+ * pandoc, which renders the math itself as native ODF formula objects.
+ */
+
+const HTML_ESCAPE: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;' };
+
+function escapeHtml(str: string): string {
+  return str.replace(/[&<>]/g, (c) => HTML_ESCAPE[c]);
+}
+
+/**
+ * Render a LaTeX expression to a MathML string.
+ *
+ * On a parse error the raw expression is returned wrapped in `<code>`, so
+ * malformed math degrades to legible source rather than throwing.
+ */
+export function renderMathToMathML(latex: string, opts: { displayMode: boolean }): string {
+  try {
+    return katex.renderToString(latex.trim(), {
+      displayMode: opts.displayMode,
+      output: 'mathml',
+      throwOnError: false,
+    });
+  } catch {
+    return `<code>${escapeHtml(latex.trim())}</code>`;
+  }
+}
+
+const CODE_PLACEHOLDER_PREFIX = '\x00MMM_CODE_';
+const CODE_PLACEHOLDER_SUFFIX = '\x00';
+const ESCAPED_DOLLAR = '\x00MMM_ESC_DOLLAR\x00';
+
+export interface ProtectedMath {
+  /** Markdown with `$…$` / `$$…$$` replaced by HTML placeholder elements. */
+  markdown: string;
+  /** Rendered MathML for each placeholder, indexed by placeholder number. */
+  mathBlocks: string[];
+}
+
+/**
+ * Find LaTeX math in markdown, render each occurrence to MathML, and replace it
+ * with an HTML placeholder element that passes through `marked.parse()`
+ * unchanged. Call {@link restoreMathPlaceholders} on the parsed HTML to swap the
+ * placeholders back for the rendered MathML.
+ *
+ * Fenced code blocks, inline code spans, and escaped dollar signs (`\$`, e.g.
+ * currency) are protected so none of them is mistaken for a math delimiter.
+ */
+export function protectMathInMarkdown(markdown: string): ProtectedMath {
+  let result = markdown;
+
+  const codeBlocks: string[] = [];
+  const stashCode = (match: string): string => {
+    const idx = codeBlocks.length;
+    codeBlocks.push(match);
+    return `${CODE_PLACEHOLDER_PREFIX}${idx}${CODE_PLACEHOLDER_SUFFIX}`;
+  };
+
+  // Protect fenced (```…```) then inline (`…`) code so a `$` inside code is literal.
+  result = result.replace(/```[\s\S]*?```/g, stashCode);
+  result = result.replace(/`[^`]+`/g, stashCode);
+
+  // Protect escaped dollar signs (\$) — a markdown literal `$`, e.g. "\$17.4M".
+  result = result.split('\\$').join(ESCAPED_DOLLAR);
+
+  const mathBlocks: string[] = [];
+  const pushMath = (mathml: string): number => {
+    const idx = mathBlocks.length;
+    mathBlocks.push(mathml);
+    return idx;
+  };
+
+  // Display math ($$…$$) first, so it is not shredded by the inline pass.
+  result = result.replace(/\$\$([\s\S]*?)\$\$/g, (_match, latex) => {
+    const idx = pushMath(renderMathToMathML(latex, { displayMode: true }));
+    return `<div data-math-placeholder="${idx}"></div>`;
+  });
+
+  // Inline math ($…$): single line, no nested `$`, not adjacent to another `$`
+  // (so "$5 and $6" and stray `$$` boundaries are left alone).
+  result = result.replace(/(?<!\$)\$(?!\$)([^$\n]+?)\$(?!\$)/g, (_match, latex) => {
+    const idx = pushMath(renderMathToMathML(latex, { displayMode: false }));
+    return `<span data-math-placeholder="${idx}"></span>`;
+  });
+
+  // Restore escaped dollars and code.
+  result = result.split(ESCAPED_DOLLAR).join('$');
+  result = result.replace(
+    new RegExp(`${CODE_PLACEHOLDER_PREFIX}(\\d+)${CODE_PLACEHOLDER_SUFFIX}`, 'g'),
+    (_match, idx) => codeBlocks[Number(idx)],
+  );
+
+  return { markdown: result, mathBlocks };
+}
+
+/**
+ * Replace the placeholder elements produced by {@link protectMathInMarkdown}
+ * with the rendered MathML, after the markdown has been parsed to HTML.
+ */
+export function restoreMathPlaceholders(html: string, mathBlocks: string[]): string {
+  if (mathBlocks.length === 0) return html;
+  return html.replace(
+    /<(?:div|span) data-math-placeholder="(\d+)"><\/(?:div|span)>/g,
+    (_match, idx) => mathBlocks[Number(idx)] ?? '',
+  );
+}
