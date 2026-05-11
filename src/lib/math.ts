@@ -139,7 +139,12 @@ function loadTexToSvg(): Promise<TexToSvg> {
     const adaptor = liteAdaptor();
     RegisterHTMLHandler(adaptor);
     const doc = mathjax.document('', {
-      InputJax: new TeX({ packages: AllPackages }),
+      InputJax: new TeX({
+        packages: AllPackages,
+        // Surface parse errors as exceptions so the caller can fall back to the
+        // literal source instead of rasterizing MathJax's red error glyph.
+        formatError: (_jax: unknown, err: Error): never => { throw err; },
+      }),
       OutputJax: new SVG({ fontCache: 'local' }), // self-contained SVGs, one per formula
     });
 
@@ -151,19 +156,28 @@ function loadTexToSvg(): Promise<TexToSvg> {
   return texToSvgPromise;
 }
 
-// MathJax SVG output draws glyphs with `fill="currentColor"` (→ black) over a
-// transparent background. Rasterized by chafa with transparency off, that
-// becomes black-on-black. Give the SVG an opaque background and a pinned glyph
-// colour so it renders as a legible "formula card".
-function styleSvgForRaster(svg: string, background: string, color: string): string {
+/** Read the formula's natural width (in `ex`) from a MathJax SVG, if present. */
+export function svgWidthEx(svg: string): number | null {
+  const m = /\bwidth="([\d.]+)ex"/.exec(svg);
+  return m ? parseFloat(m[1]) : null;
+}
+
+// MathJax SVG draws glyphs with `fill="currentColor"` over a transparent
+// background. Rasterized by chafa that becomes black-on-black (or black-on-
+// whatever-the-fill-is). Recolour the glyphs, and optionally paint an opaque
+// background rect; with no background the canvas stays transparent so the
+// terminal background shows through.
+function styleSvg(svg: string, color: string, background?: string): string {
   let out = svg.replace(/currentColor/g, color);
-  const viewBox = /viewBox="\s*([\d.eE+\- ]+?)\s*"/.exec(out);
-  if (viewBox) {
-    const parts = viewBox[1].trim().split(/\s+/).map(Number);
-    if (parts.length === 4 && parts.every((n) => Number.isFinite(n))) {
-      const [minX, minY, w, h] = parts;
-      const rect = `<rect x="${minX}" y="${minY}" width="${w}" height="${h}" fill="${background}"/>`;
-      out = out.replace(/(<svg\b[^>]*>)/, `$1${rect}`);
+  if (background && background !== 'transparent') {
+    const viewBox = /viewBox="\s*([\d.eE+\- ]+?)\s*"/.exec(out);
+    if (viewBox) {
+      const parts = viewBox[1].trim().split(/\s+/).map(Number);
+      if (parts.length === 4 && parts.every((n) => Number.isFinite(n))) {
+        const [minX, minY, w, h] = parts;
+        const rect = `<rect x="${minX}" y="${minY}" width="${w}" height="${h}" fill="${background}"/>`;
+        out = out.replace(/(<svg\b[^>]*>)/, `$1${rect}`);
+      }
     }
   }
   return out;
@@ -173,21 +187,21 @@ function styleSvgForRaster(svg: string, background: string, color: string): stri
  * Render a LaTeX expression to a standalone SVG string via MathJax.
  *
  * Used by the terminal renderer, which rasterizes the SVG — KaTeX cannot emit
- * SVG, so this is a separate path from {@link renderMathToMathML}. Pass
- * `background` to composite the formula onto an opaque colour (recommended when
- * the SVG will be rasterized, since the glyphs are otherwise black on
- * transparent). Returns `null` when MathJax cannot produce an SVG, so the
- * caller can fall back to showing the literal source.
+ * SVG, so this is a separate path from {@link renderMathToMathML}. `color`
+ * recolours the glyphs (the terminal path passes a light colour so they read
+ * on a transparent canvas over a dark background); `background`, if a real
+ * colour, paints an opaque card behind them. Returns `null` when MathJax cannot
+ * produce an SVG, so the caller can fall back to showing the literal source.
  */
 export async function renderMathToSvg(
   latex: string,
-  opts: { displayMode: boolean; background?: string; color?: string },
+  opts: { displayMode: boolean; color?: string; background?: string },
 ): Promise<string | null> {
   try {
     const texToSvg = await loadTexToSvg();
     const svg = texToSvg(latex, opts.displayMode);
     if (!svg.startsWith('<svg')) return null;
-    if (opts.background) return styleSvgForRaster(svg, opts.background, opts.color ?? '#000000');
+    if (opts.color || opts.background) return styleSvg(svg, opts.color ?? 'currentColor', opts.background);
     return svg;
   } catch {
     return null;

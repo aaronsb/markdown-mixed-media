@@ -36,6 +36,7 @@ export async function renderEmbeddedSvg(
     width?: number;
     height?: number;
     alignment?: 'left' | 'center' | 'right';
+    preserveTransparency?: boolean;
   }
 ): Promise<string> {
   // Create a temporary file for the SVG
@@ -64,7 +65,7 @@ export async function renderEmbeddedSvg(
     const rendered = await renderImage(
       tempFile,
       undefined, // maxWidth (deprecated)
-      false, // preserveTransparency
+      options?.preserveTransparency ?? false, // preserveTransparency
       undefined, // backend (only chafa supported)
       options?.alignment,
       options?.width // widthPercent

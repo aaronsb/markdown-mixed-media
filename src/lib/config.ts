@@ -59,6 +59,16 @@ export interface RenderProfile {
     fontSize?: string;
     dpi?: number;  // DPI for Mermaid diagram generation (higher = better quality for print)
   };
+  // Math (LaTeX formula) rendering — terminal only. PDF/ODT render math their
+  // own way (MathML), so this is ignored there.
+  math?: {
+    color: string;                       // glyph colour over a (usually transparent) canvas
+    background: 'transparent' | string;  // 'transparent' lets the terminal background show
+    scale: number;                       // multiplier on the formula's natural size
+    maxWidthPercent: number;             // never wider than this fraction of the terminal
+    minWidthPercent: number;             // never narrower than this fraction of the terminal
+    alignment: 'left' | 'center' | 'right';
+  };
   // Terminal-specific settings
   terminal?: {
     backend: 'chafa';  // Only chafa supported (supports SVG)
@@ -121,6 +131,14 @@ const terminalProfile: RenderProfile = {
     fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',  // Use same fonts as PDF
     fontSize: '14px',
     dpi: 96  // Screen resolution for terminal display
+  },
+  math: {
+    color: '#e6e6e6',          // light glyphs for a dark terminal
+    background: 'transparent',  // let the terminal background show through
+    scale: 3,                   // formula at ~3x its natural extent
+    maxWidthPercent: 0.6,       // but never wider than 60% of the terminal
+    minWidthPercent: 0.12,      // ...nor narrower than 12% (tiny formulas stay legible)
+    alignment: 'center'
   },
   terminal: {
     backend: 'chafa',

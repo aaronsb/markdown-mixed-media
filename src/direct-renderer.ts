@@ -4,7 +4,7 @@ import TerminalRenderer from 'marked-terminal';
 import { renderImage } from './lib/image.js';
 import { renderMermaidDiagram, cleanupMermaidFile } from './lib/mermaid.js';
 import { renderEmbeddedSvg, extractSvgFromHtml } from './lib/svg.js';
-import { renderMathToSvg } from './lib/math.js';
+import { renderMathToSvg, svgWidthEx } from './lib/math.js';
 import { loadProfile } from './lib/config.js';
 import { highlightCode, detectLanguage } from './lib/terminal-syntax-highlighter.js';
 import path from 'path';
@@ -186,9 +186,16 @@ export async function renderMarkdownDirect(filePathOrContent: string, baseDir?: 
     let displayMathContent = '';
     let processedContent = '';
 
+    // Math rendering config (terminal profile only); fall back to sane defaults.
+    const mathCfg = profile.math ?? {
+      color: '#e6e6e6', background: 'transparent' as const,
+      scale: 3, maxWidthPercent: 0.6, minWidthPercent: 0.12, alignment: 'center' as const
+    };
+    const termCols = process.stdout.columns || profile.terminal?.fallbackColumns || 80;
+
     // Flush accumulated prose, then render a display-math expression as an image
-    // (the same rasterization path embedded SVGs take). Falls back to printing
-    // the literal `$$…$$` source if the expression can't be rendered.
+    // sized to the formula's natural extent (not stretched to fill the line) and
+    // justified per config. Falls back to the literal `$$…$$` source on failure.
     const renderDisplayMath = async (latex: string): Promise<void> => {
       if (processedContent) {
         process.stdout.write(marked(processedContent) as string);
@@ -197,14 +204,22 @@ export async function renderMarkdownDirect(filePathOrContent: string, baseDir?: 
       const expr = latex.trim();
       if (!expr) return;
       try {
-        // White background + pinned glyph colour: MathJax SVG is black-on-transparent,
-        // which chafa renders as black-on-black. Make it a legible "formula card".
-        const svg = await renderMathToSvg(expr, { displayMode: true, background: '#ffffff' });
+        const svg = await renderMathToSvg(expr, {
+          displayMode: true,
+          color: mathCfg.color,
+          background: mathCfg.background
+        });
         if (!svg) throw new Error('no SVG produced');
+        // Width as a fraction of the terminal: the formula's natural width
+        // (~1 ex per column) times the configured scale, clamped to [min, max].
+        const naturalCols = svgWidthEx(svg) ?? termCols * 0.2;
+        const wantPercent = (naturalCols * mathCfg.scale) / termCols;
+        const widthPercent = Math.max(mathCfg.minWidthPercent, Math.min(mathCfg.maxWidthPercent, wantPercent));
         process.stdout.write('\n');
         const rendered = await renderEmbeddedSvg(svg, {
-          width: profile.images.widthPercent,
-          alignment: profile.images.alignment
+          width: widthPercent,
+          alignment: mathCfg.alignment,
+          preserveTransparency: true
         });
         process.stdout.write(rendered);
         process.stdout.write('\n');
