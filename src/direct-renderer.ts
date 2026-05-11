@@ -4,6 +4,7 @@ import TerminalRenderer from 'marked-terminal';
 import { renderImage } from './lib/image.js';
 import { renderMermaidDiagram, cleanupMermaidFile } from './lib/mermaid.js';
 import { renderEmbeddedSvg, extractSvgFromHtml } from './lib/svg.js';
+import { renderMathToSvg } from './lib/math.js';
 import { loadProfile } from './lib/config.js';
 import { highlightCode, detectLanguage } from './lib/terminal-syntax-highlighter.js';
 import path from 'path';
@@ -176,13 +177,42 @@ export async function renderMarkdownDirect(filePathOrContent: string, baseDir?: 
       markdownDir = path.dirname(path.resolve(filePath));
     }
     
-    // Split content by lines to process images and mermaid blocks
+    // Split content by lines to process images, mermaid blocks, and display math
     const lines = content.split('\n');
     let inCodeBlock = false;
     let inMermaidBlock = false;
     let mermaidContent = '';
+    let inDisplayMath = false;
+    let displayMathContent = '';
     let processedContent = '';
-    
+
+    // Flush accumulated prose, then render a display-math expression as an image
+    // (the same rasterization path embedded SVGs take). Falls back to printing
+    // the literal `$$…$$` source if the expression can't be rendered.
+    const renderDisplayMath = async (latex: string): Promise<void> => {
+      if (processedContent) {
+        process.stdout.write(marked(processedContent) as string);
+        processedContent = '';
+      }
+      const expr = latex.trim();
+      if (!expr) return;
+      try {
+        // White background + pinned glyph colour: MathJax SVG is black-on-transparent,
+        // which chafa renders as black-on-black. Make it a legible "formula card".
+        const svg = await renderMathToSvg(expr, { displayMode: true, background: '#ffffff' });
+        if (!svg) throw new Error('no SVG produced');
+        process.stdout.write('\n');
+        const rendered = await renderEmbeddedSvg(svg, {
+          width: profile.images.widthPercent,
+          alignment: profile.images.alignment
+        });
+        process.stdout.write(rendered);
+        process.stdout.write('\n');
+      } catch {
+        process.stdout.write(`\n$$${expr}$$\n\n`);
+      }
+    };
+
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       
@@ -268,7 +298,40 @@ export async function renderMarkdownDirect(filePathOrContent: string, baseDir?: 
         mermaidContent += line + '\n';
         continue;
       }
-      
+
+      // Display math ($$…$$): accumulate until the closing delimiter, then
+      // render the expression as an image.
+      if (inDisplayMath) {
+        const closeIdx = line.indexOf('$$');
+        if (closeIdx === -1) {
+          displayMathContent += line + '\n';
+          continue;
+        }
+        displayMathContent += line.slice(0, closeIdx);
+        inDisplayMath = false;
+        await renderDisplayMath(displayMathContent);
+        displayMathContent = '';
+        const rest = line.slice(closeIdx + 2);
+        if (rest.trim()) processedContent += rest + '\n';
+        continue;
+      }
+      if (!inCodeBlock) {
+        const trimmed = line.trimStart();
+        if (trimmed.startsWith('$$')) {
+          const afterOpen = trimmed.slice(2);
+          const closeIdx = afterOpen.indexOf('$$');
+          if (closeIdx === -1) {
+            inDisplayMath = true;
+            displayMathContent = afterOpen + '\n';
+          } else {
+            await renderDisplayMath(afterOpen.slice(0, closeIdx));
+            const rest = afterOpen.slice(closeIdx + 2);
+            if (rest.trim()) processedContent += rest + '\n';
+          }
+          continue;
+        }
+      }
+
       // Check if we're starting an SVG block (either <svg> or <div> containing SVG)
       if (!inCodeBlock && (line.includes('<svg') || line.includes('<div'))) {
         // Look ahead to see if this contains SVG

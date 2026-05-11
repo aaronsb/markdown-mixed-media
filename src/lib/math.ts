@@ -115,3 +115,81 @@ export function restoreMathPlaceholders(html: string, mathBlocks: string[]): str
     (_match, idx) => mathBlocks[Number(idx)] ?? '',
   );
 }
+
+// ── Terminal math: TeX → SVG via MathJax (browserless) ──────────────────────
+// KaTeX has no SVG output, and the terminal path needs raster (sixel/kitty),
+// not MathML — so it uses MathJax's pure-JS SVG renderer. MathJax is loaded
+// lazily on first use so the PDF/ODT paths, which only call renderMathToMathML,
+// never pay its startup cost.
+
+type TexToSvg = (latex: string, displayMode: boolean) => string;
+
+let texToSvgPromise: Promise<TexToSvg> | null = null;
+
+function loadTexToSvg(): Promise<TexToSvg> {
+  if (texToSvgPromise) return texToSvgPromise;
+  texToSvgPromise = (async (): Promise<TexToSvg> => {
+    const { mathjax } = await import('mathjax-full/js/mathjax.js');
+    const { TeX } = await import('mathjax-full/js/input/tex.js');
+    const { SVG } = await import('mathjax-full/js/output/svg.js');
+    const { liteAdaptor } = await import('mathjax-full/js/adaptors/liteAdaptor.js');
+    const { RegisterHTMLHandler } = await import('mathjax-full/js/handlers/html.js');
+    const { AllPackages } = await import('mathjax-full/js/input/tex/AllPackages.js');
+
+    const adaptor = liteAdaptor();
+    RegisterHTMLHandler(adaptor);
+    const doc = mathjax.document('', {
+      InputJax: new TeX({ packages: AllPackages }),
+      OutputJax: new SVG({ fontCache: 'local' }), // self-contained SVGs, one per formula
+    });
+
+    return (latex, displayMode) => {
+      const node = doc.convert(latex.trim(), { display: displayMode });
+      return adaptor.innerHTML(node); // the bare <svg>…</svg>
+    };
+  })();
+  return texToSvgPromise;
+}
+
+// MathJax SVG output draws glyphs with `fill="currentColor"` (→ black) over a
+// transparent background. Rasterized by chafa with transparency off, that
+// becomes black-on-black. Give the SVG an opaque background and a pinned glyph
+// colour so it renders as a legible "formula card".
+function styleSvgForRaster(svg: string, background: string, color: string): string {
+  let out = svg.replace(/currentColor/g, color);
+  const viewBox = /viewBox="\s*([\d.eE+\- ]+?)\s*"/.exec(out);
+  if (viewBox) {
+    const parts = viewBox[1].trim().split(/\s+/).map(Number);
+    if (parts.length === 4 && parts.every((n) => Number.isFinite(n))) {
+      const [minX, minY, w, h] = parts;
+      const rect = `<rect x="${minX}" y="${minY}" width="${w}" height="${h}" fill="${background}"/>`;
+      out = out.replace(/(<svg\b[^>]*>)/, `$1${rect}`);
+    }
+  }
+  return out;
+}
+
+/**
+ * Render a LaTeX expression to a standalone SVG string via MathJax.
+ *
+ * Used by the terminal renderer, which rasterizes the SVG — KaTeX cannot emit
+ * SVG, so this is a separate path from {@link renderMathToMathML}. Pass
+ * `background` to composite the formula onto an opaque colour (recommended when
+ * the SVG will be rasterized, since the glyphs are otherwise black on
+ * transparent). Returns `null` when MathJax cannot produce an SVG, so the
+ * caller can fall back to showing the literal source.
+ */
+export async function renderMathToSvg(
+  latex: string,
+  opts: { displayMode: boolean; background?: string; color?: string },
+): Promise<string | null> {
+  try {
+    const texToSvg = await loadTexToSvg();
+    const svg = texToSvg(latex, opts.displayMode);
+    if (!svg.startsWith('<svg')) return null;
+    if (opts.background) return styleSvgForRaster(svg, opts.background, opts.color ?? '#000000');
+    return svg;
+  } catch {
+    return null;
+  }
+}
