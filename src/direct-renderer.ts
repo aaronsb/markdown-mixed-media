@@ -463,7 +463,12 @@ export async function renderMarkdownDirect(filePathOrContent: string, baseDir?: 
     }
     
   } catch (error) {
-    console.error('Error rendering markdown:', error);
+    const err = error as NodeJS.ErrnoException;
+    if (err && err.code === 'ENOENT') {
+      console.error(`mmm: cannot open '${err.path ?? filePathOrContent}': no such file`);
+    } else {
+      console.error('Error rendering markdown:', error);
+    }
     process.exit(1);
   }
 }

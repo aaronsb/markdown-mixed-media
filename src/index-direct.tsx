@@ -159,11 +159,14 @@ async function main() {
         printDependencyWarnings(deps);
       }
 
-      if (hasStdin) {
+      // A file argument always wins; stdin is the fallback (e.g. `cat x.md | mmm`).
+      // Without this, running `mmm x.md` from any non-TTY context (a script, a
+      // pipe) would silently ignore the file and read empty stdin instead.
+      if (inputFile) {
+        await renderMarkdownDirect(inputFile);
+      } else {
         const content = await readStdin();
         await renderMarkdownDirect(content, process.cwd());
-      } else {
-        await renderMarkdownDirect(inputFile);
       }
     }
   } catch (error) {
