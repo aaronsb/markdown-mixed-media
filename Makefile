@@ -1,4 +1,4 @@
-.PHONY: all build deps install clean test-pdf test-terminal release aur
+.PHONY: all build deps install clean test-pdf test-terminal test-odt showcase release aur
 
 # Default: build
 all: build
@@ -24,6 +24,22 @@ test-pdf: build
 # Render test doc to terminal
 test-terminal: build
 	node dist/index-direct.js test/features.md
+
+# Render the showcase fixtures to the terminal in sequence, for a human
+# eyeball pass on rendering quality (math, diagrams, code, tables).
+showcase: build
+	@for f in test/showcase/*.md; do \
+		printf '\n\033[1;36m══════ %s ══════\033[0m\n\n' "$$f"; \
+		node dist/index-direct.js "$$f"; \
+	done
+
+# Render the math fixture to ODT and check pandoc emitted native MathML formulas.
+test-odt: build
+	@command -v pandoc >/dev/null || { echo "pandoc not installed — skipping"; exit 0; }
+	node dist/index-direct.js test/showcase/math.md --odt /tmp/mmm-test-math.odt
+	@unzip -l /tmp/mmm-test-math.odt | grep -q 'Formula-[0-9]' \
+		&& echo "✓ ODT contains MathML formula objects" \
+		|| { echo "✗ no MathML formula objects found in ODT"; exit 1; }
 
 # Clean build artifacts
 clean:

@@ -7,6 +7,11 @@ export interface RenderProfile {
   name: string;
   output: 'terminal' | 'pdf' | 'odt';
   theme: 'dark' | 'light';
+  // How rich-media (currently: math; later: mermaid, images) renders in the
+  // terminal. 'pixel' = bitmap via sixel/kitty (best fidelity, no scrollback,
+  // not pipe-safe). 'text' = Unicode approximation (pipe-safe, scrollback OK).
+  // 'auto' = pixel on an interactive terminal, text when output is piped.
+  renderMode?: 'auto' | 'pixel' | 'text';
   fonts: {
     body: string;
     heading: string;
@@ -59,6 +64,17 @@ export interface RenderProfile {
     fontSize?: string;
     dpi?: number;  // DPI for Mermaid diagram generation (higher = better quality for print)
   };
+  // Math (LaTeX formula) rendering — terminal only. PDF/ODT render math their
+  // own way (MathML), so this is ignored there.
+  math?: {
+    color: string;                       // glyph colour over a (usually transparent) canvas
+    background: 'transparent' | string;  // 'transparent' lets the terminal background show
+    scale: number;                       // display ($$…$$): multiplier on the formula's natural size
+    inlineScale: number;                 // inline ($…$): multiplier on the formula's natural size
+    maxWidthPercent: number;             // display: never wider than this fraction of the terminal
+    minWidthPercent: number;             // display: never narrower than this fraction of the terminal
+    alignment: 'left' | 'center' | 'right';  // display: justification within the line
+  };
   // Terminal-specific settings
   terminal?: {
     backend: 'chafa';  // Only chafa supported (supports SVG)
@@ -102,6 +118,7 @@ const terminalProfile: RenderProfile = {
   name: 'terminal',
   output: 'terminal',
   theme: 'dark',
+  renderMode: 'auto',
   fonts: {
     body: 'default',
     heading: 'default',
@@ -121,6 +138,15 @@ const terminalProfile: RenderProfile = {
     fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',  // Use same fonts as PDF
     fontSize: '14px',
     dpi: 96  // Screen resolution for terminal display
+  },
+  math: {
+    color: '#e6e6e6',          // light glyphs for a dark terminal
+    background: 'transparent',  // let the terminal background show through
+    scale: 3,                   // display: formula at ~3x its natural extent
+    inlineScale: 0.7,           // inline: roughly text-height, kept small
+    maxWidthPercent: 0.6,       // display: but never wider than 60% of the terminal
+    minWidthPercent: 0.12,      // display: ...nor narrower than 12% (tiny formulas stay legible)
+    alignment: 'center'
   },
   terminal: {
     backend: 'chafa',

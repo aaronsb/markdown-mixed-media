@@ -189,9 +189,14 @@ Where `"auto"` means: use the best available renderer for that format.
 - `check-deps` reports PDF export availability at startup (new `puppeteer` field in `DependencyStatus`), detected via `createRequire(import.meta.url).resolve('puppeteer')` — no side effects, no Chromium download
 - Verified: `npm install --omit=optional` succeeds, terminal rendering works, `--pdf` fails with friendly error
 
+### Phase 3 (partial — terminal math)
+- Added terminal math rendering (the "KaTeX in the terminal" gap). KaTeX has no SVG output, so the terminal path uses MathJax (`mathjax-full`, pure-JS TeX → SVG, lazy-loaded); the shared `src/lib/math.ts` keeps KaTeX → MathML for PDF and adds `renderMathToSvg()` (rasterized for pixel mode) and `latexToUnicode()` (text mode).
+- `$$…$$` renders as a content-sized image (not stretched to fill the line), `$…$` as a small inline image; both fall back to the literal source on a parse error. Light glyphs on a transparent canvas (configurable: `color`, `background`, `scale`, `inlineScale`, `min/maxWidthPercent`, `alignment` in the terminal profile's `math` block).
+- Introduced the `renderMode` knob on `RenderProfile` (`'auto' | 'pixel' | 'text'`, default `'auto'` = pixel on a TTY, text when piped). **Only the math path honours it so far** — mermaid and image rendering still always rasterize.
+- ODT math needs nothing here: pandoc (the ODT backend) already renders markdown math as native ODF formula objects. See ADR-100 for the ODT-via-pandoc framing.
+
 ### Remaining phases
-- Output mode system (text/symbols/pixel with auto-detection)
-- Pluggable renderer registry with configurable backends per format
-- Config UI for render mode and renderer preferences
-- KaTeX in the terminal renderer (currently PDF/ODT only)
+- Extend `renderMode` to mermaid and image rendering (text/symbols/pixel for all rich media, not just math); add the `symbols` mode (chafa braille/block output) and `--render=` CLI flag
+- Pluggable renderer registry with configurable backends per format — kept deliberately minimal per ADR-100 (enough to slot a renderer beside another, not a plugin platform)
+- Config UI: surface `renderMode` and the `math` block in `mmm --settings` (currently config-file only)
 - Gradual `mmdc` removal from `dependencies` once `beautiful-mermaid` coverage is validated across real-world mermaid diagrams in the wild

@@ -4,6 +4,7 @@ import TerminalRenderer from 'marked-terminal';
 import { renderImage } from './lib/image.js';
 import { renderMermaidDiagram, cleanupMermaidFile } from './lib/mermaid.js';
 import { renderEmbeddedSvg, extractSvgFromHtml } from './lib/svg.js';
+import { renderMathToSvg, svgWidthEx, extractInlineMath, INLINE_MATH_PLACEHOLDER_RE, latexToUnicode } from './lib/math.js';
 import { loadProfile } from './lib/config.js';
 import { highlightCode, detectLanguage } from './lib/terminal-syntax-highlighter.js';
 import path from 'path';
@@ -176,13 +177,101 @@ export async function renderMarkdownDirect(filePathOrContent: string, baseDir?: 
       markdownDir = path.dirname(path.resolve(filePath));
     }
     
-    // Split content by lines to process images and mermaid blocks
+    // Split content by lines to process images, mermaid blocks, and display math
     const lines = content.split('\n');
     let inCodeBlock = false;
     let inMermaidBlock = false;
     let mermaidContent = '';
+    let inDisplayMath = false;
+    let displayMathContent = '';
+    let displayMathLines = 0;        // safety valve against a runaway unterminated $$
+    const DISPLAY_MATH_MAX_LINES = 40;
     let processedContent = '';
-    
+
+    // Math rendering config (terminal profile only); fall back to sane defaults.
+    const mathCfg = profile.math ?? {
+      color: '#e6e6e6', background: 'transparent' as const,
+      scale: 3, inlineScale: 0.7, maxWidthPercent: 0.6, minWidthPercent: 0.12, alignment: 'center' as const
+    };
+    const termCols = process.stdout.columns || profile.terminal?.fallbackColumns || 80;
+
+    // Effective math render mode: 'pixel' (sixel/kitty image) or 'text' (Unicode
+    // approximation). 'auto' (the default) picks pixel on an interactive terminal
+    // and text when output is piped — sixel in `| less` is just garbage.
+    const mathMode: 'pixel' | 'text' =
+      profile.renderMode === 'pixel' || profile.renderMode === 'text'
+        ? profile.renderMode
+        : (process.stdout.isTTY ? 'pixel' : 'text');
+
+    // Inline `$…$` math pulled from accumulated prose, in order of appearance.
+    // Each is rendered (small sixel, or Unicode in text mode) and substituted for
+    // its placeholder when the prose is flushed.
+    let inlineMathExprs: string[] = [];
+
+    const substituteInlineMath = async (text: string): Promise<string> => {
+      if (inlineMathExprs.length === 0) return text;
+      const rendered = await Promise.all(inlineMathExprs.map(async (expr) => {
+        if (mathMode === 'text') return latexToUnicode(expr) || `$${expr}$`;
+        try {
+          const svg = await renderMathToSvg(expr, {
+            displayMode: false, color: mathCfg.color, background: mathCfg.background
+          });
+          if (!svg) return `$${expr}$`;
+          const cols = Math.max(2, Math.round((svgWidthEx(svg) ?? 4) * mathCfg.inlineScale));
+          const out = await renderEmbeddedSvg(svg, {
+            width: Math.max(0.02, cols / termCols), preserveTransparency: true
+          });
+          // renderEmbeddedSvg never throws — it returns a "⚠ Warning…" string on
+          // failure; don't splice that into the prose, fall back to the literal.
+          return out.includes('⚠ Warning') ? `$${expr}$` : out;
+        } catch {
+          return `$${expr}$`;
+        }
+      }));
+      return text.replace(INLINE_MATH_PLACEHOLDER_RE, (_m: string, i: string) => rendered[Number(i)] ?? _m);
+    };
+
+    // Flush accumulated prose: parse it, substitute any inline math, write it out.
+    const flushProse = async (): Promise<void> => {
+      if (!processedContent) return;
+      let out = marked(processedContent) as string;
+      out = await substituteInlineMath(out);
+      process.stdout.write(out);
+      processedContent = '';
+      inlineMathExprs = [];
+    };
+
+    // Flush prose, then render a display-math expression as an image sized to the
+    // formula's natural extent (not stretched to fill the line) and justified per
+    // config. Falls back to the literal `$$…$$` source on failure.
+    const renderDisplayMath = async (latex: string): Promise<void> => {
+      await flushProse();
+      const expr = latex.trim();
+      if (!expr) return;
+      if (mathMode === 'text') {
+        process.stdout.write(`\n  ${latexToUnicode(expr) || `$$${expr}$$`}\n\n`);
+        return;
+      }
+      try {
+        const svg = await renderMathToSvg(expr, {
+          displayMode: true, color: mathCfg.color, background: mathCfg.background
+        });
+        if (!svg) throw new Error('no SVG produced');
+        // Width as a fraction of the terminal: the formula's natural width
+        // (~1 ex per column) times the configured scale, clamped to [min, max].
+        const naturalCols = svgWidthEx(svg) ?? termCols * 0.2;
+        const wantPercent = (naturalCols * mathCfg.scale) / termCols;
+        const widthPercent = Math.max(mathCfg.minWidthPercent, Math.min(mathCfg.maxWidthPercent, wantPercent));
+        const rendered = await renderEmbeddedSvg(svg, {
+          width: widthPercent, alignment: mathCfg.alignment, preserveTransparency: true
+        });
+        if (rendered.includes('⚠ Warning')) throw new Error('rasterization failed');
+        process.stdout.write(`\n${rendered}\n`);
+      } catch {
+        process.stdout.write(`\n$$${expr}$$\n\n`);
+      }
+    };
+
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       
@@ -193,14 +282,10 @@ export async function renderMarkdownDirect(filePathOrContent: string, baseDir?: 
         if (inMermaidBlock) {
           // End of mermaid block
           inMermaidBlock = false;
-          
+
           // First, render everything we've accumulated so far
-          if (processedContent) {
-            const rendered = marked(processedContent) as string;
-            process.stdout.write(rendered);
-            processedContent = '';
-          }
-          
+          await flushProse();
+
           // Now render the mermaid diagram
           try {
             process.stdout.write('\n');
@@ -268,7 +353,47 @@ export async function renderMarkdownDirect(filePathOrContent: string, baseDir?: 
         mermaidContent += line + '\n';
         continue;
       }
-      
+
+      // Display math ($$…$$): accumulate until the closing delimiter, then
+      // render the expression as an image.
+      if (inDisplayMath) {
+        const closeIdx = line.indexOf('$$');
+        if (closeIdx === -1) {
+          displayMathContent += line + '\n';
+          if (++displayMathLines > DISPLAY_MATH_MAX_LINES) {
+            // No closing $$ in sight — this almost certainly wasn't display math.
+            // Bail out: re-emit the run as ordinary text instead of swallowing
+            // the rest of the document.
+            processedContent += '$$' + displayMathContent;
+            inDisplayMath = false; displayMathContent = ''; displayMathLines = 0;
+          }
+          continue;
+        }
+        displayMathContent += line.slice(0, closeIdx);
+        inDisplayMath = false; displayMathLines = 0;
+        await renderDisplayMath(displayMathContent);
+        displayMathContent = '';
+        const rest = line.slice(closeIdx + 2);
+        if (rest.trim()) processedContent += extractInlineMath(rest, inlineMathExprs) + '\n';
+        continue;
+      }
+      if (!inCodeBlock) {
+        const trimmed = line.trimStart();
+        if (trimmed.startsWith('$$')) {
+          const afterOpen = trimmed.slice(2);
+          const closeIdx = afterOpen.indexOf('$$');
+          if (closeIdx === -1) {
+            inDisplayMath = true; displayMathLines = 0;
+            displayMathContent = afterOpen + '\n';
+          } else {
+            await renderDisplayMath(afterOpen.slice(0, closeIdx));
+            const rest = afterOpen.slice(closeIdx + 2);
+            if (rest.trim()) processedContent += extractInlineMath(rest, inlineMathExprs) + '\n';
+          }
+          continue;
+        }
+      }
+
       // Check if we're starting an SVG block (either <svg> or <div> containing SVG)
       if (!inCodeBlock && (line.includes('<svg') || line.includes('<div'))) {
         // Look ahead to see if this contains SVG
@@ -312,12 +437,8 @@ export async function renderMarkdownDirect(filePathOrContent: string, baseDir?: 
           
           if (extractedSvg) {
             // First, render everything we've accumulated so far
-            if (processedContent) {
-              const rendered = marked(processedContent) as string;
-              process.stdout.write(rendered);
-              processedContent = '';
-            }
-            
+            await flushProse();
+
             // Render the SVG
             process.stdout.write('\n');
             
@@ -341,14 +462,10 @@ export async function renderMarkdownDirect(filePathOrContent: string, baseDir?: 
       
       if (!inCodeBlock && imageMatch) {
         const [_, alt, src] = imageMatch;
-        
+
         // First, render everything we've accumulated so far
-        if (processedContent) {
-          const rendered = marked(processedContent) as string;
-          process.stdout.write(rendered);
-          processedContent = '';
-        }
-        
+        await flushProse();
+
         // Now handle the image directly
         if (!src.startsWith('http')) {
           const imagePath = path.isAbsolute(src) ? src : path.resolve(markdownDir, src);
@@ -388,19 +505,31 @@ export async function renderMarkdownDirect(filePathOrContent: string, baseDir?: 
           process.stdout.write(`[External image: ${alt || src} - ${src}]\n\n`);
         }
       } else {
-        // Regular line, accumulate for markdown processing
-        processedContent += line + '\n';
+        // Regular line: pull out inline $…$ math (rendered at flush time) and
+        // accumulate. Lines inside a fenced code block — or a 4-space/tab
+        // indented code block that isn't a list item — pass through verbatim.
+        const indented = line.match(/^(?: {4,}|\t)(.*)$/);
+        const looksIndentedCode =
+          !inCodeBlock && indented !== null && !/^\s*(?:[-*+]|\d+[.)])\s/.test(indented[1]);
+        processedContent +=
+          (inCodeBlock || looksIndentedCode ? line : extractInlineMath(line, inlineMathExprs)) + '\n';
       }
     }
-    
-    // Render any remaining content
-    if (processedContent) {
-      const rendered = marked(processedContent) as string;
-      process.stdout.write(rendered);
+
+    // An unterminated $$… block: emit it as literal text rather than dropping it.
+    if (inDisplayMath && displayMathContent.trim()) {
+      processedContent += '$$' + displayMathContent;
     }
+    // Render any remaining content
+    await flushProse();
     
   } catch (error) {
-    console.error('Error rendering markdown:', error);
+    const err = error as NodeJS.ErrnoException;
+    if (err && err.code === 'ENOENT') {
+      console.error(`mmm: cannot open '${err.path ?? filePathOrContent}': no such file`);
+    } else {
+      console.error('Error rendering markdown:', error);
+    }
     process.exit(1);
   }
 }

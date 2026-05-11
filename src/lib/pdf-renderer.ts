@@ -3,10 +3,10 @@ import { markedHighlight } from 'marked-highlight';
 import markedFootnote from 'marked-footnote';
 import { markedEmoji } from 'marked-emoji';
 import * as nodeEmoji from 'node-emoji';
-import katex from 'katex';
 import hljs from 'highlight.js';
 import { renderMermaidToSvg } from './mermaid.js';
 import { extractSvgFromHtml } from './svg.js';
+import { protectMathInMarkdown, restoreMathPlaceholders } from './math.js';
 import { loadProfile, RenderProfile } from './config.js';
 import path from 'path';
 import fs from 'fs/promises';
@@ -116,15 +116,15 @@ export async function renderMarkdownToPdf(
     const content = await fs.readFile(filePath, 'utf-8');
     const markdownDir = path.dirname(path.resolve(filePath));
 
-    // Process markdown content with mermaid diagrams and embedded SVGs
-    // Math rendering returns placeholders to protect KaTeX output from marked
+    // Process markdown content with mermaid diagrams and embedded SVGs.
+    // Math is rendered to MathML and returned as placeholders that survive marked.
     const { content: processedContent, mathBlocks } = await processMermaidAndSvgBlocks(content, markdownDir, profile);
 
     // Convert markdown to HTML
     let htmlContent = await marked.parse(processedContent);
 
-    // Restore KaTeX-rendered math blocks after marked processing
-    htmlContent = restoreMathBlocks(htmlContent, mathBlocks);
+    // Swap math placeholders back for the rendered MathML after marked parsing
+    htmlContent = restoreMathPlaceholders(htmlContent, mathBlocks);
 
     // Process images to embed them as base64
     const htmlWithImages = await embedImages(htmlContent, markdownDir);
@@ -158,97 +158,15 @@ async function processMermaidAndSvgBlocks(content: string, markdownDir: string, 
   // First, extract and process all embedded SVG blocks to prevent page break issues
   let processedContent = processEmbeddedSvgs(content, profile);
 
-  // Process LaTeX math expressions before markdown parsing (server-side KaTeX).
-  // Returns placeholders instead of rendered HTML to protect from marked mangling.
-  const mathBlocks: string[] = [];
-  processedContent = processLatexMath(processedContent, mathBlocks);
+  // Render LaTeX math to MathML before markdown parsing; it comes back as
+  // placeholder elements that survive marked, swapped back after parsing.
+  const { markdown, mathBlocks } = protectMathInMarkdown(processedContent);
+  processedContent = markdown;
 
   // Then process Mermaid blocks
   processedContent = await processMermaidBlocks(processedContent, markdownDir, profile);
 
   return { content: processedContent, mathBlocks };
-}
-
-// Process LaTeX math expressions server-side using KaTeX with MathML output.
-// MathML is rendered natively by Chromium — no CSS, fonts, or client-side JS needed.
-// Rendered HTML is stored in mathBlocks and replaced with placeholders that survive
-// marked parsing. Call restoreMathBlocks() after marked.parse() to swap them back.
-function processLatexMath(content: string, mathBlocks: string[]): string {
-  let result = content;
-
-  // Protect code blocks from math processing
-  const codeBlocks: string[] = [];
-
-  // Protect fenced code blocks (```...```)
-  result = result.replace(/```[\s\S]*?```/g, (match) => {
-    const idx = codeBlocks.length;
-    codeBlocks.push(match);
-    return `\x00CODEBLOCK${idx}\x00`;
-  });
-
-  // Protect inline code (`...`)
-  result = result.replace(/`[^`]+`/g, (match) => {
-    const idx = codeBlocks.length;
-    codeBlocks.push(match);
-    return `\x00CODEBLOCK${idx}\x00`;
-  });
-
-  // Protect escaped dollar signs (\$) from being treated as math delimiters
-  // These are markdown literal dollar signs (e.g., currency: \$17.4M)
-  const ESCAPED_DOLLAR_PLACEHOLDER = '\x00ESCAPED_DOLLAR\x00';
-  result = result.replace(/\\\$/g, ESCAPED_DOLLAR_PLACEHOLDER);
-
-  // Process display math ($$...$$) - must come first to avoid conflicts with inline
-  result = result.replace(/\$\$([\s\S]*?)\$\$/g, (_match, math) => {
-    let rendered: string;
-    try {
-      rendered = katex.renderToString(math.trim(), {
-        displayMode: true,
-        output: 'mathml',
-        throwOnError: false
-      });
-    } catch {
-      rendered = `<code>${escapeHtml(math.trim())}</code>`;
-    }
-    const idx = mathBlocks.length;
-    mathBlocks.push(rendered);
-    // Use an HTML div placeholder that marked passes through unchanged
-    return `<div data-math-placeholder="${idx}"></div>`;
-  });
-
-  // Process inline math ($...$) - be careful not to match currency or other uses
-  result = result.replace(/(?<!\$)\$(?!\$)([^\$\n]+?)\$(?!\$)/g, (_match, math) => {
-    let rendered: string;
-    try {
-      rendered = katex.renderToString(math.trim(), {
-        displayMode: false,
-        output: 'mathml',
-        throwOnError: false
-      });
-    } catch {
-      rendered = `<code>${escapeHtml(math.trim())}</code>`;
-    }
-    const idx = mathBlocks.length;
-    mathBlocks.push(rendered);
-    // Use an HTML span placeholder that marked passes through unchanged
-    return `<span data-math-placeholder="${idx}"></span>`;
-  });
-
-  // Restore escaped dollar signs as literal $
-  result = result.replace(new RegExp(ESCAPED_DOLLAR_PLACEHOLDER, 'g'), '$');
-
-  // Restore code blocks
-  result = result.replace(/\x00CODEBLOCK(\d+)\x00/g, (_match, idx) => codeBlocks[parseInt(idx)]);
-
-  return result;
-}
-
-// Replace math placeholders with the actual KaTeX-rendered HTML after marked processing
-function restoreMathBlocks(html: string, mathBlocks: string[]): string {
-  if (mathBlocks.length === 0) return html;
-  return html.replace(/<(div|span) data-math-placeholder="(\d+)"><\/(div|span)>/g,
-    (_match, _tag, idx) => mathBlocks[parseInt(idx)]
-  );
 }
 
 // Process embedded SVGs before markdown parsing to prevent page break issues
