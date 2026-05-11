@@ -184,6 +184,8 @@ export async function renderMarkdownDirect(filePathOrContent: string, baseDir?: 
     let mermaidContent = '';
     let inDisplayMath = false;
     let displayMathContent = '';
+    let displayMathLines = 0;        // safety valve against a runaway unterminated $$
+    const DISPLAY_MATH_MAX_LINES = 40;
     let processedContent = '';
 
     // Math rendering config (terminal profile only); fall back to sane defaults.
@@ -216,9 +218,12 @@ export async function renderMarkdownDirect(filePathOrContent: string, baseDir?: 
           });
           if (!svg) return `$${expr}$`;
           const cols = Math.max(2, Math.round((svgWidthEx(svg) ?? 4) * mathCfg.inlineScale));
-          return await renderEmbeddedSvg(svg, {
+          const out = await renderEmbeddedSvg(svg, {
             width: Math.max(0.02, cols / termCols), preserveTransparency: true
           });
+          // renderEmbeddedSvg never throws — it returns a "⚠ Warning…" string on
+          // failure; don't splice that into the prose, fall back to the literal.
+          return out.includes('⚠ Warning') ? `$${expr}$` : out;
         } catch {
           return `$${expr}$`;
         }
@@ -257,12 +262,11 @@ export async function renderMarkdownDirect(filePathOrContent: string, baseDir?: 
         const naturalCols = svgWidthEx(svg) ?? termCols * 0.2;
         const wantPercent = (naturalCols * mathCfg.scale) / termCols;
         const widthPercent = Math.max(mathCfg.minWidthPercent, Math.min(mathCfg.maxWidthPercent, wantPercent));
-        process.stdout.write('\n');
         const rendered = await renderEmbeddedSvg(svg, {
           width: widthPercent, alignment: mathCfg.alignment, preserveTransparency: true
         });
-        process.stdout.write(rendered);
-        process.stdout.write('\n');
+        if (rendered.includes('⚠ Warning')) throw new Error('rasterization failed');
+        process.stdout.write(`\n${rendered}\n`);
       } catch {
         process.stdout.write(`\n$$${expr}$$\n\n`);
       }
@@ -356,14 +360,21 @@ export async function renderMarkdownDirect(filePathOrContent: string, baseDir?: 
         const closeIdx = line.indexOf('$$');
         if (closeIdx === -1) {
           displayMathContent += line + '\n';
+          if (++displayMathLines > DISPLAY_MATH_MAX_LINES) {
+            // No closing $$ in sight — this almost certainly wasn't display math.
+            // Bail out: re-emit the run as ordinary text instead of swallowing
+            // the rest of the document.
+            processedContent += '$$' + displayMathContent;
+            inDisplayMath = false; displayMathContent = ''; displayMathLines = 0;
+          }
           continue;
         }
         displayMathContent += line.slice(0, closeIdx);
-        inDisplayMath = false;
+        inDisplayMath = false; displayMathLines = 0;
         await renderDisplayMath(displayMathContent);
         displayMathContent = '';
         const rest = line.slice(closeIdx + 2);
-        if (rest.trim()) processedContent += rest + '\n';
+        if (rest.trim()) processedContent += extractInlineMath(rest, inlineMathExprs) + '\n';
         continue;
       }
       if (!inCodeBlock) {
@@ -372,12 +383,12 @@ export async function renderMarkdownDirect(filePathOrContent: string, baseDir?: 
           const afterOpen = trimmed.slice(2);
           const closeIdx = afterOpen.indexOf('$$');
           if (closeIdx === -1) {
-            inDisplayMath = true;
+            inDisplayMath = true; displayMathLines = 0;
             displayMathContent = afterOpen + '\n';
           } else {
             await renderDisplayMath(afterOpen.slice(0, closeIdx));
             const rest = afterOpen.slice(closeIdx + 2);
-            if (rest.trim()) processedContent += rest + '\n';
+            if (rest.trim()) processedContent += extractInlineMath(rest, inlineMathExprs) + '\n';
           }
           continue;
         }
@@ -495,11 +506,20 @@ export async function renderMarkdownDirect(filePathOrContent: string, baseDir?: 
         }
       } else {
         // Regular line: pull out inline $…$ math (rendered at flush time) and
-        // accumulate. Lines inside a fenced code block pass through verbatim.
-        processedContent += (inCodeBlock ? line : extractInlineMath(line, inlineMathExprs)) + '\n';
+        // accumulate. Lines inside a fenced code block — or a 4-space/tab
+        // indented code block that isn't a list item — pass through verbatim.
+        const indented = line.match(/^(?: {4,}|\t)(.*)$/);
+        const looksIndentedCode =
+          !inCodeBlock && indented !== null && !/^\s*(?:[-*+]|\d+[.)])\s/.test(indented[1]);
+        processedContent +=
+          (inCodeBlock || looksIndentedCode ? line : extractInlineMath(line, inlineMathExprs)) + '\n';
       }
     }
 
+    // An unterminated $$… block: emit it as literal text rather than dropping it.
+    if (inDisplayMath && displayMathContent.trim()) {
+      processedContent += '$$' + displayMathContent;
+    }
     // Render any remaining content
     await flushProse();
     

@@ -81,15 +81,21 @@ export function protectMathInMarkdown(markdown: string): ProtectedMath {
     return idx;
   };
 
+  // A span that wraps a stashed code block isn't math — restoring it later would
+  // splice a raw control-char token into the formula. Leave such spans literal.
+  const wrapsCode = (latex: string): boolean => latex.includes(CODE_PLACEHOLDER_PREFIX);
+
   // Display math ($$…$$) first, so it is not shredded by the inline pass.
-  result = result.replace(/\$\$([\s\S]*?)\$\$/g, (_match, latex) => {
+  result = result.replace(/\$\$([\s\S]*?)\$\$/g, (match, latex) => {
+    if (wrapsCode(String(latex))) return match;
     const idx = pushMath(renderMathToMathML(latex, { displayMode: true }));
     return `<div data-math-placeholder="${idx}"></div>`;
   });
 
   // Inline math ($…$): single line, no nested `$`, not adjacent to another `$`
   // (so "$5 and $6" and stray `$$` boundaries are left alone).
-  result = result.replace(/(?<!\$)\$(?!\$)([^$\n]+?)\$(?!\$)/g, (_match, latex) => {
+  result = result.replace(/(?<!\$)\$(?!\$)([^$\n]+?)\$(?!\$)/g, (match, latex) => {
+    if (wrapsCode(String(latex))) return match;
     const idx = pushMath(renderMathToMathML(latex, { displayMode: false }));
     return `<span data-math-placeholder="${idx}"></span>`;
   });
@@ -183,10 +189,21 @@ function toScript(text: string, table: Record<string, string>): string | null {
   return out;
 }
 
+// Resolve a `\command` to its glyph (Greek / symbol), or its bare name.
+function commandGlyph(name: string): string {
+  return GREEK_TO_UNICODE[name] ?? SYMBOL_TO_UNICODE[name] ?? name;
+}
+
+// Structural commands whose bare names, if they survive the passes below
+// (because their arguments contained braces a non-greedy `[^{}]*` couldn't
+// match), are noise rather than meaningful text — strip them.
+const LEFTOVER_NOISE = /\b(?:[dt]?frac|sqrt|begin|end|left|right|cdot|pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix|smallmatrix|matrix|array|cases|aligned|alignedat|align|gather|split|substack|hline|overline|underline|bar|hat|tilde|vec|dot|ddot)\b/g;
+
 /**
  * Render a LaTeX expression to a best-effort plain-text approximation. Always
- * returns a string — anything it can't typeset degrades gracefully (braces and
- * unknown `\commands` are stripped to their bare names rather than dropped).
+ * returns a string — anything it can't typeset degrades gracefully. It is not a
+ * typesetter: matrices and multi-line environments come out flattened, and
+ * unparseable structure may read as approximate.
  */
 export function latexToUnicode(latex: string): string {
   let s = latex.trim();
@@ -196,41 +213,41 @@ export function latexToUnicode(latex: string): string {
     /\\(?:text|textrm|textbf|textit|mathrm|mathbf|mathit|mathsf|mathtt|mathcal|mathbb|mathfrak|boldsymbol|operatorname)\s*\{([^{}]*)\}/g,
     '$1',
   );
+  // \begin{env} ... \end{env} markers → drop; \\ row break and & alignment → space
+  s = s.replace(/\\(?:begin|end)\s*\{[^{}]*\}/g, '');
+  s = s.replace(/\\\\/g, ' ').replace(/&/g, ' ');
 
-  // \frac{a}{b} → (a)/(b); repeat to flatten nesting (innermost first)
+  // Superscripts / subscripts first, so e.g. `x^2` inside a \frac argument
+  // collapses to a brace-free `x²` that the \frac pass below can then match.
+  const sup = (g: string): string => toScript(g, SUPERSCRIPT) ?? `^(${g})`;
+  const sub = (g: string): string => toScript(g, SUBSCRIPT) ?? `_(${g})`;
+  s = s.replace(/\^\\([A-Za-z]+)/g, (_m, name: string) => `^${commandGlyph(name)}`);
+  s = s.replace(/_\\([A-Za-z]+)/g, (_m, name: string) => `_${commandGlyph(name)}`);
+  s = s.replace(/\^\{([^{}]*)\}/g, (_m, g) => sup(String(g)));
+  s = s.replace(/_\{([^{}]*)\}/g, (_m, g) => sub(String(g)));
+  s = s.replace(/\^([A-Za-z0-9])/g, (_m, g) => sup(String(g)));
+  s = s.replace(/_([A-Za-z0-9])/g, (_m, g) => sub(String(g)));
+
+  // \sqrt[n]{x} → ⁿ√(x);  \sqrt{x} → √(x)
+  s = s.replace(/\\sqrt\s*\[([^\]]*)\]\s*\{([^{}]*)\}/g, (_m, n, x) => `${toScript(String(n).trim(), SUPERSCRIPT) ?? `(${String(n).trim()})`}√(${String(x).trim()})`);
+  s = s.replace(/\\sqrt\s*\{([^{}]*)\}/g, (_m, x) => `√(${String(x).trim()})`);
+
+  // \frac{a}{b} → (a)/(b); repeat to flatten nesting (innermost match first)
   let prev = '';
   while (prev !== s) {
     prev = s;
     s = s.replace(/\\[dt]?frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g, (_m, a, b) => `(${a.trim()})/(${b.trim()})`);
   }
 
-  // \sqrt[n]{x} → ⁿ√(x);  \sqrt{x} → √(x)
-  s = s.replace(/\\sqrt\s*\[([^\]]*)\]\s*\{([^{}]*)\}/g, (_m, n, x) => `${toScript(String(n).trim(), SUPERSCRIPT) ?? `(${String(n).trim()})`}√(${String(x).trim()})`);
-  s = s.replace(/\\sqrt\s*\{([^{}]*)\}/g, (_m, x) => `√(${String(x).trim()})`);
-
-  // Resolve a `\command` to its glyph (Greek / symbol), or its bare name.
-  const cmd = (name: string): string =>
-    GREEK_TO_UNICODE[name] ?? SYMBOL_TO_UNICODE[name] ?? name;
-
-  // Superscripts / subscripts. `^\command` / `_\command` keep the marker and use
-  // the command's glyph (no Unicode superscript exists for, e.g., ∞).
-  const sup = (g: string): string => toScript(g, SUPERSCRIPT) ?? `^(${g})`;
-  const sub = (g: string): string => toScript(g, SUBSCRIPT) ?? `_(${g})`;
-  s = s.replace(/\^\\([A-Za-z]+)/g, (_m, name: string) => `^${cmd(name)}`);
-  s = s.replace(/_\\([A-Za-z]+)/g, (_m, name: string) => `_${cmd(name)}`);
-  s = s.replace(/\^\{([^{}]*)\}/g, (_m, g) => sup(String(g)));
-  s = s.replace(/_\{([^{}]*)\}/g, (_m, g) => sub(String(g)));
-  s = s.replace(/\^([A-Za-z0-9])/g, (_m, g) => sup(String(g)));
-  s = s.replace(/_([A-Za-z0-9])/g, (_m, g) => sub(String(g)));
-
   // \greek and \symbol commands (don't consume a following space — in LaTeX the
   // delimiter space is dropped, but keeping it reads better and avoids "α+β").
-  s = s.replace(/\\([A-Za-z]+)/g, (_m, name: string) => cmd(name));
+  s = s.replace(/\\([A-Za-z]+)/g, (_m, name: string) => commandGlyph(name));
   // single-character escapes: \, \; \! \{ \} \% \& \#
   s = s.replace(/\\([,;!:{}%&#$ ])/g, (_m, c: string) => (c === ',' || c === ';' || c === ':' || c === ' ' ? ' ' : c === '!' ? '' : c));
 
-  // strip any remaining braces; collapse whitespace
-  s = s.replace(/[{}]/g, '').replace(/[ \t]{2,}/g, '  ').trim();
+  // strip leftover structural-command names (while braces still mark their
+  // boundaries) then the braces themselves; tidy spaces
+  s = s.replace(LEFTOVER_NOISE, '').replace(/[{}]/g, '').replace(/[ \t]{2,}/g, '  ').trim();
   return s;
 }
 
@@ -301,7 +318,10 @@ export function extractInlineMath(line: string, exprs: string[]): string {
   });
   out = out.split('\\$').join('\x00MMM_ESC_DOLLAR\x00');
 
-  out = out.replace(/(?<![$\\])\$(?!\s)([^$\n]+?)(?<!\s)\$(?!\$)/g, (_m, latex) => {
+  out = out.replace(/(?<![$\\])\$(?!\s)([^$\n]+?)(?<!\s)\$(?!\$)/g, (m, latex) => {
+    // A span wrapping a code-span placeholder isn't math; leave it literal so
+    // the code span (not a raw control-char token) is what gets restored.
+    if (String(latex).includes('\x00MMM_CS_')) return m;
     const i = exprs.length;
     exprs.push(String(latex).trim());
     return inlineMathPlaceholder(i);
