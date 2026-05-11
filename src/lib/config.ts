@@ -7,6 +7,11 @@ export interface RenderProfile {
   name: string;
   output: 'terminal' | 'pdf' | 'odt';
   theme: 'dark' | 'light';
+  // How rich-media (currently: math; later: mermaid, images) renders in the
+  // terminal. 'pixel' = bitmap via sixel/kitty (best fidelity, no scrollback,
+  // not pipe-safe). 'text' = Unicode approximation (pipe-safe, scrollback OK).
+  // 'auto' = pixel on an interactive terminal, text when output is piped.
+  renderMode?: 'auto' | 'pixel' | 'text';
   fonts: {
     body: string;
     heading: string;
@@ -113,6 +118,7 @@ const terminalProfile: RenderProfile = {
   name: 'terminal',
   output: 'terminal',
   theme: 'dark',
+  renderMode: 'auto',
   fonts: {
     body: 'default',
     heading: 'default',

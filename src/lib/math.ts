@@ -116,6 +116,124 @@ export function restoreMathPlaceholders(html: string, mathBlocks: string[]): str
   );
 }
 
+// ── Math → Unicode approximation (terminal "text" render mode) ──────────────
+// A best-effort LaTeX → plain-text rendering for terminals without image
+// support, piped output, or users who simply prefer text. Covers the common
+// cases (Greek, super/subscripts, common operators/relations, simple fractions
+// and roots) and leaves anything it doesn't understand roughly as-is. Not a
+// typesetter: matrices, multi-line environments, and deeply nested structures
+// come out approximate.
+
+const GREEK_TO_UNICODE: Record<string, string> = {
+  alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', epsilon: 'ε', varepsilon: 'ε',
+  zeta: 'ζ', eta: 'η', theta: 'θ', vartheta: 'ϑ', iota: 'ι', kappa: 'κ',
+  lambda: 'λ', mu: 'μ', nu: 'ν', xi: 'ξ', pi: 'π', varpi: 'ϖ', rho: 'ρ',
+  varrho: 'ϱ', sigma: 'σ', varsigma: 'ς', tau: 'τ', upsilon: 'υ', phi: 'φ',
+  varphi: 'φ', chi: 'χ', psi: 'ψ', omega: 'ω',
+  Gamma: 'Γ', Delta: 'Δ', Theta: 'Θ', Lambda: 'Λ', Xi: 'Ξ', Pi: 'Π',
+  Sigma: 'Σ', Upsilon: 'Υ', Phi: 'Φ', Psi: 'Ψ', Omega: 'Ω',
+};
+
+const SYMBOL_TO_UNICODE: Record<string, string> = {
+  times: '×', cdot: '·', cdotp: '·', div: '÷', pm: '±', mp: '∓', ast: '∗',
+  star: '⋆', circ: '∘', bullet: '•', oplus: '⊕', otimes: '⊗', cup: '∪',
+  cap: '∩', setminus: '∖',
+  leq: '≤', le: '≤', geq: '≥', ge: '≥', neq: '≠', ne: '≠', equiv: '≡',
+  approx: '≈', sim: '∼', simeq: '≃', cong: '≅', propto: '∝', ll: '≪', gg: '≫',
+  to: '→', rightarrow: '→', longrightarrow: '⟶', leftarrow: '←', Rightarrow: '⇒',
+  Leftarrow: '⇐', leftrightarrow: '↔', Leftrightarrow: '⇔', mapsto: '↦',
+  implies: '⇒', iff: '⇔',
+  sum: '∑', prod: '∏', coprod: '∐', int: '∫', oint: '∮', iint: '∬', iiint: '∭',
+  partial: '∂', nabla: '∇', infty: '∞', forall: '∀', exists: '∃', nexists: '∄',
+  in: '∈', notin: '∉', ni: '∋', subset: '⊂', subseteq: '⊆', supset: '⊃',
+  supseteq: '⊇', emptyset: '∅', varnothing: '∅',
+  land: '∧', wedge: '∧', lor: '∨', vee: '∨', neg: '¬', lnot: '¬',
+  cdots: '⋯', ldots: '…', dots: '…', vdots: '⋮', ddots: '⋱', prime: '′',
+  hbar: 'ℏ', ell: 'ℓ', Re: 'ℜ', Im: 'ℑ', aleph: 'ℵ', wp: '℘', deg: '°',
+  angle: '∠', perp: '⊥', parallel: '∥', mid: '∣', dagger: '†', ddagger: '‡',
+  // spacing / styling commands that should just disappear (or become a space)
+  left: '', right: '', big: '', Big: '', bigg: '', Bigg: '', bigl: '', bigr: '',
+  displaystyle: '', textstyle: '', scriptstyle: '', limits: '', nolimits: '',
+  quad: '  ', qquad: '    ',
+};
+
+const SUPERSCRIPT: Record<string, string> = {
+  '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷',
+  '8': '⁸', '9': '⁹', '+': '⁺', '-': '⁻', '=': '⁼', '(': '⁽', ')': '⁾',
+  n: 'ⁿ', i: 'ⁱ', a: 'ᵃ', b: 'ᵇ', c: 'ᶜ', d: 'ᵈ', e: 'ᵉ', f: 'ᶠ', g: 'ᵍ',
+  h: 'ʰ', j: 'ʲ', k: 'ᵏ', l: 'ˡ', m: 'ᵐ', o: 'ᵒ', p: 'ᵖ', r: 'ʳ', s: 'ˢ',
+  t: 'ᵗ', u: 'ᵘ', v: 'ᵛ', w: 'ʷ', x: 'ˣ', y: 'ʸ', z: 'ᶻ', ' ': ' ',
+};
+const SUBSCRIPT: Record<string, string> = {
+  '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄', '5': '₅', '6': '₆', '7': '₇',
+  '8': '₈', '9': '₉', '+': '₊', '-': '₋', '=': '₌', '(': '₍', ')': '₎',
+  a: 'ₐ', e: 'ₑ', h: 'ₕ', i: 'ᵢ', j: 'ⱼ', k: 'ₖ', l: 'ₗ', m: 'ₘ', n: 'ₙ',
+  o: 'ₒ', p: 'ₚ', r: 'ᵣ', s: 'ₛ', t: 'ₜ', u: 'ᵤ', v: 'ᵥ', x: 'ₓ', ' ': ' ',
+};
+
+// Map a string to super/subscript glyphs. Returns null if any character has no
+// mapping, so the caller can fall back to a literal `^(...)` / `_(...)` form.
+function toScript(text: string, table: Record<string, string>): string | null {
+  let out = '';
+  for (const ch of text) {
+    const mapped = table[ch];
+    if (mapped === undefined) return null;
+    out += mapped;
+  }
+  return out;
+}
+
+/**
+ * Render a LaTeX expression to a best-effort plain-text approximation. Always
+ * returns a string — anything it can't typeset degrades gracefully (braces and
+ * unknown `\commands` are stripped to their bare names rather than dropped).
+ */
+export function latexToUnicode(latex: string): string {
+  let s = latex.trim();
+
+  // \text{...}, \mathrm{...}, \mathbf{...}, \operatorname{...} → bare content
+  s = s.replace(
+    /\\(?:text|textrm|textbf|textit|mathrm|mathbf|mathit|mathsf|mathtt|mathcal|mathbb|mathfrak|boldsymbol|operatorname)\s*\{([^{}]*)\}/g,
+    '$1',
+  );
+
+  // \frac{a}{b} → (a)/(b); repeat to flatten nesting (innermost first)
+  let prev = '';
+  while (prev !== s) {
+    prev = s;
+    s = s.replace(/\\[dt]?frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g, (_m, a, b) => `(${a.trim()})/(${b.trim()})`);
+  }
+
+  // \sqrt[n]{x} → ⁿ√(x);  \sqrt{x} → √(x)
+  s = s.replace(/\\sqrt\s*\[([^\]]*)\]\s*\{([^{}]*)\}/g, (_m, n, x) => `${toScript(String(n).trim(), SUPERSCRIPT) ?? `(${String(n).trim()})`}√(${String(x).trim()})`);
+  s = s.replace(/\\sqrt\s*\{([^{}]*)\}/g, (_m, x) => `√(${String(x).trim()})`);
+
+  // Resolve a `\command` to its glyph (Greek / symbol), or its bare name.
+  const cmd = (name: string): string =>
+    GREEK_TO_UNICODE[name] ?? SYMBOL_TO_UNICODE[name] ?? name;
+
+  // Superscripts / subscripts. `^\command` / `_\command` keep the marker and use
+  // the command's glyph (no Unicode superscript exists for, e.g., ∞).
+  const sup = (g: string): string => toScript(g, SUPERSCRIPT) ?? `^(${g})`;
+  const sub = (g: string): string => toScript(g, SUBSCRIPT) ?? `_(${g})`;
+  s = s.replace(/\^\\([A-Za-z]+)/g, (_m, name: string) => `^${cmd(name)}`);
+  s = s.replace(/_\\([A-Za-z]+)/g, (_m, name: string) => `_${cmd(name)}`);
+  s = s.replace(/\^\{([^{}]*)\}/g, (_m, g) => sup(String(g)));
+  s = s.replace(/_\{([^{}]*)\}/g, (_m, g) => sub(String(g)));
+  s = s.replace(/\^([A-Za-z0-9])/g, (_m, g) => sup(String(g)));
+  s = s.replace(/_([A-Za-z0-9])/g, (_m, g) => sub(String(g)));
+
+  // \greek and \symbol commands (don't consume a following space — in LaTeX the
+  // delimiter space is dropped, but keeping it reads better and avoids "α+β").
+  s = s.replace(/\\([A-Za-z]+)/g, (_m, name: string) => cmd(name));
+  // single-character escapes: \, \; \! \{ \} \% \& \#
+  s = s.replace(/\\([,;!:{}%&#$ ])/g, (_m, c: string) => (c === ',' || c === ';' || c === ':' || c === ' ' ? ' ' : c === '!' ? '' : c));
+
+  // strip any remaining braces; collapse whitespace
+  s = s.replace(/[{}]/g, '').replace(/[ \t]{2,}/g, '  ').trim();
+  return s;
+}
+
 // ── Terminal math: TeX → SVG via MathJax (browserless) ──────────────────────
 // KaTeX has no SVG output, and the terminal path needs raster (sixel/kitty),
 // not MathML — so it uses MathJax's pure-JS SVG renderer. MathJax is loaded

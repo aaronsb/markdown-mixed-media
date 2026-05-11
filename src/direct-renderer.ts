@@ -4,7 +4,7 @@ import TerminalRenderer from 'marked-terminal';
 import { renderImage } from './lib/image.js';
 import { renderMermaidDiagram, cleanupMermaidFile } from './lib/mermaid.js';
 import { renderEmbeddedSvg, extractSvgFromHtml } from './lib/svg.js';
-import { renderMathToSvg, svgWidthEx, extractInlineMath, INLINE_MATH_PLACEHOLDER_RE } from './lib/math.js';
+import { renderMathToSvg, svgWidthEx, extractInlineMath, INLINE_MATH_PLACEHOLDER_RE, latexToUnicode } from './lib/math.js';
 import { loadProfile } from './lib/config.js';
 import { highlightCode, detectLanguage } from './lib/terminal-syntax-highlighter.js';
 import path from 'path';
@@ -193,16 +193,23 @@ export async function renderMarkdownDirect(filePathOrContent: string, baseDir?: 
     };
     const termCols = process.stdout.columns || profile.terminal?.fallbackColumns || 80;
 
+    // Effective math render mode: 'pixel' (sixel/kitty image) or 'text' (Unicode
+    // approximation). 'auto' (the default) picks pixel on an interactive terminal
+    // and text when output is piped — sixel in `| less` is just garbage.
+    const mathMode: 'pixel' | 'text' =
+      profile.renderMode === 'pixel' || profile.renderMode === 'text'
+        ? profile.renderMode
+        : (process.stdout.isTTY ? 'pixel' : 'text');
+
     // Inline `$…$` math pulled from accumulated prose, in order of appearance.
-    // Each is rendered to a small image and substituted for its placeholder when
-    // the prose is flushed.
+    // Each is rendered (small sixel, or Unicode in text mode) and substituted for
+    // its placeholder when the prose is flushed.
     let inlineMathExprs: string[] = [];
 
-    // Render each collected inline expression to a small sixel and swap it in for
-    // its placeholder; fall back to the literal `$…$` source on failure.
     const substituteInlineMath = async (text: string): Promise<string> => {
       if (inlineMathExprs.length === 0) return text;
       const rendered = await Promise.all(inlineMathExprs.map(async (expr) => {
+        if (mathMode === 'text') return latexToUnicode(expr) || `$${expr}$`;
         try {
           const svg = await renderMathToSvg(expr, {
             displayMode: false, color: mathCfg.color, background: mathCfg.background
@@ -236,6 +243,10 @@ export async function renderMarkdownDirect(filePathOrContent: string, baseDir?: 
       await flushProse();
       const expr = latex.trim();
       if (!expr) return;
+      if (mathMode === 'text') {
+        process.stdout.write(`\n  ${latexToUnicode(expr) || `$$${expr}$$`}\n\n`);
+        return;
+      }
       try {
         const svg = await renderMathToSvg(expr, {
           displayMode: true, color: mathCfg.color, background: mathCfg.background
