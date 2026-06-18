@@ -301,8 +301,9 @@ npm run build:simple
 # Install locally
 ./scripts/install.sh
 
-# Run tests
-npm test
+# Verify rendering (PDF / terminal)
+make test-pdf
+make test-terminal
 ```
 
 ## 🚦 Terminal Compatibility
