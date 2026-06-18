@@ -2,7 +2,7 @@
 description: Testing and verification workflow including PDF output validation and type checking
 vocabulary: test verify check lint pdf-test terminal-test typecheck
 pattern: test|verify|check|lint
-commands: make test|make lint|npm test
+commands: make test-pdf|make test-terminal|make build
 scope: agent, subagent
 ---
 # Testing
