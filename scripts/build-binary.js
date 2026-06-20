@@ -27,7 +27,7 @@ async function buildBinary() {
       outfile: path.join(projectRoot, 'build/bundle.js'),
       platform: 'node',
       format: 'esm',
-      target: 'node20',
+      target: 'node22',
       // Only exclude native modules that can't be bundled
       external: ['sharp'],  // Keep puppeteer bundled for standalone mermaid rendering
       minify: false,  // Keep it readable for now to debug issues
@@ -115,7 +115,7 @@ import './bundle.js';
   await fs.writeFile(path.join(projectRoot, 'build', 'wrapper.js'), wrapperContent);
 
   // Build with nexe
-  await execAsync(`npx nexe build/wrapper.js -o mmv --target node20-linux-x64`);
+  await execAsync(`npx nexe build/wrapper.js -o mmv --target node22-linux-x64`);
 }
 
 buildBinary();

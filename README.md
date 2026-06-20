@@ -58,7 +58,7 @@ mmm README.md
 ## 📋 Prerequisites
 
 ### Required
-- **Node.js** v20 or higher (for building)
+- **Node.js** v22.12 or higher (for building; required by puppeteer 25, used for PDF export)
 - **Git** (for cloning)
 
 ### Optional (but recommended)
