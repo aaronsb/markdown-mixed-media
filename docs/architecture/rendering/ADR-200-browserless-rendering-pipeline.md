@@ -195,8 +195,12 @@ Where `"auto"` means: use the best available renderer for that format.
 - Introduced the `renderMode` knob on `RenderProfile` (`'auto' | 'pixel' | 'text'`, default `'auto'` = pixel on a TTY, text when piped). **Only the math path honours it so far** — mermaid and image rendering still always rasterize.
 - ODT math needs nothing here: pandoc (the ODT backend) already renders markdown math as native ODF formula objects. See ADR-100 for the ODT-via-pandoc framing.
 
+### Phase 4 (completed)
+- Removed `@mermaid-js/mermaid-cli` from `dependencies`. `mmdc` is invoked only as a system binary on `PATH` (`execAsync('mmdc …')` in `src/lib/mermaid.ts`), never imported as a package, so the npm dependency was redundant with the runtime-detection model `check-deps` already uses. `beautiful-mermaid` remains the always-available core renderer; `mmdc` stays an optional system tool (documented `npm install -g @mermaid-js/mermaid-cli`), and its absence is handled by the existing graceful diagnostic.
+- This completes the portability goal stated in the Context: a base `npm install` no longer pulls Chromium transitively through `mermaid-cli`. It also resolved a dependency conflict — `mermaid-cli@11.15` requires `puppeteer ^23 || ^24`, while MMM pins the optional `puppeteer ^22` for PDF export; removing the package dissolved the mismatch (`npm ls puppeteer` is clean again).
+- Verified: `npm audit` → 0 vulnerabilities, terminal mermaid render and `--pdf` export both work via `beautiful-mermaid` + the optional puppeteer path.
+
 ### Remaining phases
 - Extend `renderMode` to mermaid and image rendering (text/symbols/pixel for all rich media, not just math); add the `symbols` mode (chafa braille/block output) and `--render=` CLI flag
 - Pluggable renderer registry with configurable backends per format — kept deliberately minimal per ADR-100 (enough to slot a renderer beside another, not a plugin platform)
 - Config UI: surface `renderMode` and the `math` block in `mmm --settings` (currently config-file only)
-- Gradual `mmdc` removal from `dependencies` once `beautiful-mermaid` coverage is validated across real-world mermaid diagrams in the wild
