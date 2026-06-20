@@ -6,7 +6,7 @@ pkgdesc="Markdown Mixed Media - A powerful terminal markdown viewer with image s
 arch=('any')
 url="https://github.com/aaronsb/markdown-mixed-media"
 license=('MIT')
-depends=('nodejs>=20')
+depends=('nodejs>=22')
 optdepends=(
     'chafa: Terminal image rendering support'
     'mermaid-cli: Mermaid diagram rendering'
