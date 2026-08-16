@@ -59,6 +59,13 @@ temp/
 .claude/.ways-embed
 
 # Package manager
-package-lock.json
+#
+# package-lock.json is tracked deliberately. This is not only an application:
+# aaronsb/arch-repo builds it in a clean container and signs the result with a
+# repository key, and a signature over a tree resolved fresh from the registry
+# on every build attests to nothing in particular.
 yarn.lock
-pnpm-lock.yaml*.pkg.tar.zst
+pnpm-lock.yaml
+
+# Built packages
+*.pkg.tar.zst

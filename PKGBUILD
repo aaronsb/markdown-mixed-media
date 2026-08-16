@@ -26,8 +26,16 @@ build() {
     # prebuilt Chrome binary (e.g. aarch64).
     export PUPPETEER_SKIP_DOWNLOAD=true
 
-    # Install dependencies (.npmrc sets legacy-peer-deps for marked-emoji compat)
-    npm install --production=false
+    # npm ci, not npm install: it installs exactly what package-lock.json
+    # records and fails rather than resolving something new. This package is
+    # built in a clean container and signed with a repository key, and a
+    # signature over a tree resolved fresh from the registry each time attests
+    # to nothing — a compromised patch release of any of the 158 transitive
+    # dependencies would land inside a signed distro package with no record of
+    # what went in.
+    #
+    # (.npmrc sets legacy-peer-deps for marked-emoji compat)
+    npm ci
 
     # Build the project
     npm run build
