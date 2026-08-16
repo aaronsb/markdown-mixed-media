@@ -1,40 +1,35 @@
 ---
-description: Release workflow for GitHub releases and AUR package publishing
+description: Release workflow — cut a GitHub release; arch-repo publishes
 vocabulary: release publish aur version bump ship pkgbuild tarball
 pattern: release|publish|aur|version|bump|ship
-commands: create-release|update-aur|make release|make aur
+commands: create-release|make release|make package
 scope: agent, subagent
 ---
 # Release Workflow
 
-## Full Release
+`aaronsb/arch-repo` publishes this project. It reads `./PKGBUILD` from the
+default branch, builds it in a clean container, lints with namcap, signs, and
+pushes to the AUR (`mmm`) and the `[aaronsb]` pacman repository.
+
+## Cutting a release
 
 ```bash
-make release VERSION=1.0.x   # Tag + GitHub release + AUR update
+make package                 # clean-chroot build + namcap; fails on a namcap error
+make release                 # then tag, push, and cut the GitHub release
 ```
 
-Or step by step:
-```bash
-make build                                    # Compile
-make test-pdf                                 # Verify rendering
-npm run release:create -- -v 1.0.x -p         # GitHub release
-npm run aur:update -- -p                      # AUR push
-```
+That is the whole publishing action. There is no AUR step.
 
-## AUR Repo
+## Never
 
-- Lives at `~/Projects/aur/mmm` (or `$AUR_REPO_DIR`)
-- Must have existing history from AUR remote — don't re-init
-- If push rejected: `cd ~/Projects/aur/mmm && git pull --rebase` then retry
-- Script auto-generates `.SRCINFO` from PKGBUILD
+- Do not push to the AUR from here. `scripts/update-aur.sh` and the `aur:update`
+  npm script are gone, there is no clone to keep at `~/Projects/aur/mmm`, and two
+  writers to one AUR ref is how a PKGBUILD and its `.SRCINFO` drift apart.
+- Do not edit `pkgver`, `pkgrel` or `sha256sums`, and do not commit a
+  `.SRCINFO`. arch-repo overwrites all four.
+- Do not cut a version for a packaging fix. Change the recipe on the default
+  branch and arch-repo ships it as a `pkgrel` bump.
 
-## Version Flow
-
-1. Code lands on main
-2. `create-release.sh` tags, pushes, creates GitHub release with auto-generated notes
-3. `update-aur.sh` downloads tarball, checksums it, updates PKGBUILD, pushes to AUR
-4. Users get it via `yay -Syu mmm`
-
-## Checksums
-
-GitHub creates an immutable tarball per tag. The checksum is deterministic — calculate once, never changes.
+See `.claude/CLAUDE.md` for what the recipe depends on, and
+https://github.com/aaronsb/arch-repo/blob/main/docs/packaging-contract.md for
+the contract.
