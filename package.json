@@ -46,8 +46,7 @@
     "mathjax-full": "^3.2.1",
     "meow": "^13.1.0",
     "node-emoji": "^2.2.0",
-    "open": "^10.0.3",
-    "sharp": "^0.33.5"
+    "open": "^10.0.3"
   },
   "optionalDependencies": {
     "puppeteer": "^25.1.0"
