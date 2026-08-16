@@ -50,10 +50,24 @@ package() {
     # Copy node_modules but exclude problematic binaries
     cp -r node_modules "$pkgdir/usr/lib/$pkgname/"
 
-    # Remove problematic binary files that cause fakeroot issues
-    find "$pkgdir/usr/lib/$pkgname/node_modules" -type f -name "*.node" -delete 2>/dev/null || true
-    find "$pkgdir/usr/lib/$pkgname/node_modules" -type f -name "*.so" -delete 2>/dev/null || true
-    find "$pkgdir/usr/lib/$pkgname/node_modules" -type f -name "*.dylib" -delete 2>/dev/null || true
+    # Strip native code out of node_modules. This package is arch=('any'), so
+    # anything ELF in it is both wrong and unusable — a prebuild for one
+    # platform shipped to every platform.
+    #
+    # *.bare is here because the list without it was incomplete rather than
+    # wrong: bare-url arrives transitively and ships prebuilds/{android-x64,
+    # linux-arm64,linux-x64}/*.bare, which namcap reports as ELF files in an
+    # 'any' package. The three patterns below were already catching the same
+    # class of file under different extensions.
+    _nm="$pkgdir/usr/lib/$pkgname/node_modules"
+    find "$_nm" -type f \( -name "*.node" -o -name "*.so" -o -name "*.dylib" \
+                            -o -name "*.bare" \) -delete 2>/dev/null || true
+
+    # Dependencies ship their own build tooling. katex carries src/metrics and
+    # src/fonts, Python scripts it uses to regenerate font metrics during its
+    # own development. Nothing here runs them, but namcap reads their imports
+    # and concludes the package depends on python.
+    find "$_nm" -type f -name "*.py" -delete 2>/dev/null || true
 
     # Create wrapper script
     cat > "$pkgdir/usr/bin/$pkgname" << EOF
